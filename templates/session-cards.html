@@ -7,10 +7,10 @@
     <span class="session-cell session-upstream">{{if .Latest.Upstream}}{{.Latest.Upstream}}{{else}}<span class="session-empty-cell">—</span>{{end}}</span>
     <span class="session-cell session-model">{{if .Latest.Model}}{{.Latest.Model}}{{else}}<span class="session-empty-cell">—</span>{{end}}</span>
     <span class="session-state {{.StateClass}}">{{.State}}</span>
-    <span class="session-metric session-status"><small>status</small><strong>{{.Status}}</strong></span>
-    <span class="session-metric session-send"><small>send</small><strong>{{.Latest.RequestBytes}}</strong></span>
-    <span class="session-metric session-receive"><small>receive</small><strong>{{.Latest.ResponseBytes}}</strong></span>
-    <span class="session-metric session-duration"><small>duration</small><strong>{{.Duration}}</strong></span>
+    <span class="session-status {{.StatusClass}}">{{.Status}}</span>
+    <span class="session-metric session-send"><i data-lucide="arrow-up" aria-hidden="true"></i><strong>{{.Latest.RequestBytes}}</strong></span>
+    <span class="session-metric session-receive"><i data-lucide="arrow-down" aria-hidden="true"></i><strong>{{.Latest.ResponseBytes}}</strong></span>
+    <span class="session-metric session-duration"><strong>{{.Duration}}</strong></span>
     <i data-lucide="chevron-down" class="session-chevron"></i>
   </button>
   <div class="session-details" hidden>

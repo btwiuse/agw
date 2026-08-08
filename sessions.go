@@ -88,6 +88,7 @@ type sessionCard struct {
 	State        string
 	StateClass   string
 	Status       string
+	StatusClass  string
 	RequestCount int
 	AppSelector  string
 	Upstream     string
@@ -440,7 +441,8 @@ func (h *sessionHub) cards() []sessionCard {
 			requests = append(requests, makeSessionRequestCard(record.Requests[i]))
 		}
 		state, class := sessionState(latest.State)
-		cards = append(cards, sessionCard{ID: record.ID, ShortID: shortSessionID(record.ID), Started: record.FirstSeen.Format("15:04:05"), Duration: formatSessionDuration(record.FirstSeen, latest.CompletedAt), State: state, StateClass: class, Status: formatStatus(latest.Status), RequestCount: record.RequestCount, Latest: makeSessionRequestCard(latest), Requests: requests})
+		status := latest.Status
+		cards = append(cards, sessionCard{ID: record.ID, ShortID: shortSessionID(record.ID), Started: record.FirstSeen.Format("15:04:05"), Duration: formatSessionDuration(record.FirstSeen, latest.CompletedAt), State: state, StateClass: class, Status: formatStatus(status), StatusClass: statusClass(status), RequestCount: record.RequestCount, Latest: makeSessionRequestCard(latest), Requests: requests})
 	}
 	return cards
 }
@@ -745,6 +747,21 @@ func formatStatus(status int) string {
 		return "pending"
 	}
 	return fmt.Sprintf("%d", status)
+}
+
+func statusClass(status int) string {
+	switch {
+	case status >= 200 && status < 300:
+		return "status-2xx"
+	case status >= 300 && status < 400:
+		return "status-3xx"
+	case status >= 400 && status < 500:
+		return "status-4xx"
+	case status >= 500:
+		return "status-5xx"
+	default:
+		return "status-pending"
+	}
 }
 
 func formatSessionDuration(start, end time.Time) string {

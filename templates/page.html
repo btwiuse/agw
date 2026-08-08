@@ -196,11 +196,11 @@
     .journal-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; border-bottom: 1px solid #e5ece9; }
     .journal-title { margin: 0; color: #213633; font-size: 15px; font-weight: 700; }
     .journal-note { margin: 3px 0 0; color: #71827e; font-size: 12px; }
-    .session-table-head { display: grid; grid-template-columns: 8px minmax(110px, 1.4fr) minmax(52px, .7fr) minmax(64px, .8fr) minmax(52px, .8fr) 52px 40px minmax(44px, .6fr) minmax(44px, .6fr) minmax(44px, .6fr) 18px; align-items: center; gap: 12px; padding: 8px 24px; color: #778984; background: #eef4f1; border-bottom: 1px solid #d7e0dc; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+    .session-table-head { display: grid; grid-template-columns: 8px minmax(110px, 1.4fr) minmax(52px, .7fr) minmax(64px, .8fr) minmax(52px, .8fr) minmax(84px, .9fr) minmax(56px, .7fr) minmax(44px, .6fr) minmax(44px, .6fr) minmax(44px, .6fr) 18px; align-items: center; gap: 12px; padding: 8px 24px; color: #778984; background: #eef4f1; border-bottom: 1px solid #d7e0dc; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
     .session-table-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .session-list { display: grid; gap: 8px; padding: 10px; background: #f7faf8; }
     .session-card { overflow: hidden; background: #fff; border: 1px solid #dce5e1; border-radius: 6px; }
-    .session-summary { display: grid; width: 100%; grid-template-columns: 8px minmax(110px, 1.4fr) minmax(52px, .7fr) minmax(64px, .8fr) minmax(52px, .8fr) 52px 40px minmax(44px, .6fr) minmax(44px, .6fr) minmax(44px, .6fr) 18px; align-items: center; gap: 12px; padding: 12px 14px; color: #233834; background: #fff; border: 0; cursor: pointer; text-align: left; }
+    .session-summary { display: grid; width: 100%; grid-template-columns: 8px minmax(110px, 1.4fr) minmax(52px, .7fr) minmax(64px, .8fr) minmax(52px, .8fr) minmax(84px, .9fr) minmax(56px, .7fr) minmax(44px, .6fr) minmax(44px, .6fr) minmax(44px, .6fr) 18px; align-items: center; gap: 12px; padding: 12px 14px; color: #233834; background: #fff; border: 0; cursor: pointer; text-align: left; }
     .session-summary:hover { background: #fbfdfc; }
     .session-summary:focus-visible { outline: 2px solid #62a58d; outline-offset: -2px; }
     .session-indicator { width: 8px; height: 8px; border-radius: 50%; }
@@ -213,9 +213,16 @@
     .session-empty-cell { color: #a9b7b2; }
     .session-model { justify-self: start; max-width: 100%; overflow: hidden; padding: 1px 7px; color: #1c4a3d; background: #e5f1ec; border: 1px solid #bcd8cd; border-radius: 999px; font: 10px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
     .session-state { justify-self: start; padding: 3px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
-    .session-metric { display: grid; gap: 2px; text-align: right; }
+    .session-metric { display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px; min-width: 0; white-space: nowrap; text-align: right; }
     .session-metric small, .session-overview small { color: #82928e; font-size: 10px; font-weight: 700; letter-spacing: 0; text-transform: uppercase; }
     .session-metric strong, .session-overview strong { color: #314743; font: 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .session-metric svg { flex: 0 0 12px; width: 12px; height: 12px; color: #8b9a96; }
+    .session-status { justify-self: start; padding: 3px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+    .session-status.status-pending { color: #506560; background: #edf2f0; }
+    .session-status.status-2xx { color: #21745f; background: #e3f5e9; }
+    .session-status.status-3xx { color: #2f6d9e; background: #e5f0fa; }
+    .session-status.status-4xx { color: #98691c; background: #fff4d8; }
+    .session-status.status-5xx { color: #a33e3e; background: #fff0ef; }
     .session-chevron { width: 16px; height: 16px; color: #8b9a96; transition: transform .16s ease; }
     .session-card.expanded .session-chevron { transform: rotate(180deg); }
     .session-details { padding: 0 14px 14px; border-top: 1px solid #e8eeeb; background: #fbfdfc; }
@@ -349,8 +356,14 @@
     :root[data-theme="dark"] .is-completed { color: #b5c6c0; background: #263734; }
     :root[data-theme="dark"] .is-warning { color: #f0c466; background: #453719; }
     :root[data-theme="dark"] .is-error { color: #f3aaa6; background: #48292a; }
+    :root[data-theme="dark"] .session-metric svg { color: #78958a; }
+    :root[data-theme="dark"] .session-status.status-pending { color: #b5c6c0; background: #263734; }
+    :root[data-theme="dark"] .session-status.status-2xx { color: #7fcaab; background: #1d3a31; }
+    :root[data-theme="dark"] .session-status.status-3xx { color: #8ab8e0; background: #1d3042; }
+    :root[data-theme="dark"] .session-status.status-4xx { color: #f0c466; background: #453719; }
+    :root[data-theme="dark"] .session-status.status-5xx { color: #f3aaa6; background: #48292a; }
     :root[data-theme="dark"] .session-empty { color: #8ba198; }
-    @media (max-width: 760px) { .shell { width: min(100% - 24px, 1220px); margin-top: 12px; } .telemetry { margin-top: 12px; } .selector-table-head { display: none; } .selector-row { grid-template-columns: 1fr; gap: 8px; padding: 12px 15px; } .selector-actions { justify-content: space-between; } .session-table-head { display: none; } .session-summary { grid-template-columns: 8px minmax(0, 1fr) auto 60px 60px 18px; gap: 9px; } .session-metric { display: none; } .session-metric.session-send, .session-metric.session-receive { display: grid; } .session-selector, .session-upstream, .session-model { display: none; } .header-list div { grid-template-columns: 105px minmax(0, 1fr); } .gateway-events li { grid-template-columns: 58px 76px minmax(0, 1fr) 34px 34px; } }
+    @media (max-width: 760px) { .shell { width: min(100% - 24px, 1220px); margin-top: 12px; } .telemetry { margin-top: 12px; } .selector-table-head { display: none; } .selector-row { grid-template-columns: 1fr; gap: 8px; padding: 12px 15px; } .selector-actions { justify-content: space-between; } .session-table-head { display: none; } .session-summary { grid-template-columns: 8px minmax(0, 1fr) auto 60px 60px 18px; gap: 9px; } .session-metric { display: none; } .session-metric.session-send, .session-metric.session-receive { display: inline-flex; } .session-status { display: none; } .session-selector, .session-upstream, .session-model { display: none; } .header-list div { grid-template-columns: 105px minmax(0, 1fr); } .gateway-events li { grid-template-columns: 58px 76px minmax(0, 1fr) 34px 34px; } }
     @media (max-width: 760px) { .gateway-events li { grid-template-columns: 58px 76px minmax(0, 1fr); } }
   </style>
 </head>
@@ -750,6 +763,12 @@
       if (state && nextState) {
         if (state.className !== nextState.className) state.className = nextState.className;
         if (state.textContent !== nextState.textContent) state.textContent = nextState.textContent;
+      }
+      const statusBadge = oldSummary.querySelector('.session-status');
+      const nextStatusBadge = newSummary.querySelector('.session-status');
+      if (statusBadge && nextStatusBadge) {
+        if (statusBadge.className !== nextStatusBadge.className) statusBadge.className = nextStatusBadge.className;
+        scheduleTextUpdate(statusBadge, nextStatusBadge.textContent);
       }
       for (const selector of ['.session-path', '.session-id', '.session-selector', '.session-upstream', '.session-model']) {
         const el = oldSummary.querySelector(selector);

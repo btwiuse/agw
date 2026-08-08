@@ -1177,7 +1177,7 @@ func TestSessionHubTracksLifecycleAndRedactsHeaders(t *testing.T) {
 	tracked.complete(http.StatusOK, 2048, nil)
 
 	cards = hub.cards()
-	if cards[0].State != "completed" || cards[0].Status != "200" || cards[0].Latest.Bytes != "2.0 KB" {
+	if cards[0].State != "completed" || cards[0].Status != "200" || cards[0].StatusClass != "status-2xx" || cards[0].Latest.Bytes != "2.0 KB" {
 		t.Fatalf("completed card = %#v", cards[0])
 	}
 	content, err := hub.renderCards()
@@ -1193,7 +1193,7 @@ func TestSessionHubTracksLifecycleAndRedactsHeaders(t *testing.T) {
 	if !strings.Contains(content, `data-payload-open="request"`) || !strings.Contains(content, `data-payload-open="response"`) || !strings.Contains(content, "data-payload-buttons") {
 		t.Fatalf("session card does not include the payload open buttons: %s", content)
 	}
-	if !strings.Contains(content, `<span class="session-metric session-send"><small>send</small><strong>26.0 KB</strong></span>`) || !strings.Contains(content, `<span class="session-metric session-receive"><small>receive</small><strong>15 B</strong></span>`) {
+	if !strings.Contains(content, `<span class="session-metric session-send"><i data-lucide="arrow-up" aria-hidden="true"></i><strong>26.0 KB</strong></span>`) || !strings.Contains(content, `<span class="session-metric session-receive"><i data-lucide="arrow-down" aria-hidden="true"></i><strong>15 B</strong></span>`) {
 		t.Fatalf("session card does not include the send/receive summary: %s", content)
 	}
 	capturedRequestBody, found, err := hub.readPayload(cards[0].ID, "request", 0)
