@@ -115,7 +115,7 @@
     .ms-chip svg { width: 11px; height: 11px; }
     .ms-placeholder { color: #97a7a2; font-size: 12px; white-space: nowrap; }
     .ms-chevron { flex: 0 0 14px; width: 14px; height: 14px; color: #8b9a96; }
-    .ms-menu { position: fixed; z-index: 60; display: grid; gap: 2px; width: max-content; min-width: 240px; max-height: 260px; padding: 6px; overflow: auto; color: #203330; background: #fff; border: 1px solid #c8d4d0; border-radius: 6px; box-shadow: 0 14px 30px rgba(24, 44, 39, .16); }
+    .ms-menu { position: fixed; z-index: 60; display: grid; gap: 2px; width: max-content; min-width: 240px; max-height: 260px; padding: 6px; overflow: auto; overscroll-behavior: contain; color: #203330; background: #fff; border: 1px solid #c8d4d0; border-radius: 6px; box-shadow: 0 14px 30px rgba(24, 44, 39, .16); }
     .ms-menu[hidden] { display: none; }
     .ms-option { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 13px; }
     .ms-option:hover { background: #f0f6f3; }
@@ -961,8 +961,13 @@
       const width = Math.min(Math.max(rect.width, 240), window.innerWidth - 16);
       menu.style.width = width + 'px';
       menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)) + 'px';
-      menu.style.top = Math.min(rect.bottom + 4, window.innerHeight - 40) + 'px';
-      menu.style.maxHeight = Math.max(120, Math.min(260, window.innerHeight - parseFloat(menu.style.top) - 12)) + 'px';
+      const gap = 4, edge = 12;
+      const below = window.innerHeight - rect.bottom - gap - edge;
+      const above = rect.top - gap - edge;
+      const flip = below < 160 && above > below;
+      const height = Math.max(120, Math.min(260, flip ? above : below));
+      menu.style.maxHeight = height + 'px';
+      menu.style.top = Math.max(edge, flip ? rect.top - gap - height : Math.min(rect.bottom + gap, window.innerHeight - edge - height)) + 'px';
     }
     function closeMultiSelects() {
       document.querySelectorAll('[data-multi-select]').forEach(function (ms) {
@@ -1093,7 +1098,7 @@
         if (first) first.focus();
       }
     });
-    window.addEventListener('scroll', closeMultiSelects, true);
+    window.addEventListener('scroll', function (event) { const target = event.target; if (target && target.nodeType === 1 && target.closest('[data-ms-menu]')) return; closeMultiSelects(); }, true);
     window.addEventListener('resize', closeMultiSelects);
     document.addEventListener('click', function (event) {
       const telemetryTab = event.target.closest('[data-telemetry-tab]');
