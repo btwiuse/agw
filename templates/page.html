@@ -365,6 +365,78 @@
     :root[data-theme="dark"] .session-empty { color: #8ba198; }
     @media (max-width: 760px) { .shell { width: min(100% - 24px, 1220px); margin-top: 12px; } .telemetry { margin-top: 12px; } .selector-table-head { display: none; } .selector-row { grid-template-columns: 1fr; gap: 8px; padding: 12px 15px; } .selector-actions { justify-content: space-between; } .session-table-head { display: none; } .session-summary { grid-template-columns: 8px minmax(0, 1fr) auto 60px 60px 18px; gap: 9px; } .session-metric { display: none; } .session-metric.session-send, .session-metric.session-receive { display: inline-flex; } .session-status { display: none; } .session-selector, .session-upstream, .session-model { display: none; } .header-list div { grid-template-columns: 105px minmax(0, 1fr); } .gateway-events li { grid-template-columns: 58px 76px minmax(0, 1fr) 34px 34px; } }
     @media (max-width: 760px) { .gateway-events li { grid-template-columns: 58px 76px minmax(0, 1fr); } }
+    .stats-view { display: grid; gap: 12px; padding: 14px; }
+    .stats-windowbar { display: flex; flex-wrap: wrap; gap: 6px; }
+    .stats-window { padding: 4px 11px; color: #53716a; background: #fff; border: 1px solid #c8d4d0; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight: 700; transition: color .15s ease, border-color .15s ease, background .15s ease; }
+    .stats-window:hover { color: #176d59; border-color: #8fb7aa; }
+    .stats-window.is-active { color: #173d34; background: #d9efc3; border-color: #a8cf77; }
+    .stats-window:focus-visible { outline: 2px solid #62a58d; outline-offset: 1px; }
+    .stats-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .stats-kpi { display: grid; gap: 4px; padding: 12px 14px; background: #f7faf8; border: 1px solid #dce5e1; border-radius: 6px; }
+    .stats-kpi-label { color: #71827e; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+    .stats-kpi-value { color: #213633; font: 700 22px/1.1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .stats-kpi small { color: #82928e; font-size: 11px; }
+    .stats-kpi.is-alert .stats-kpi-value, .stats-kpi.is-alert small { color: #a83e3e; }
+    .stats-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .stats-panel { overflow: hidden; background: #f7faf8; border: 1px solid #dce5e1; border-radius: 6px; }
+    .stats-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 11px 14px 0; }
+    .stats-panel-head h3 { margin: 0; color: #213633; font-size: 13px; font-weight: 700; }
+    .stats-panel-meta { color: #82928e; font-size: 11px; white-space: nowrap; }
+    .stats-chart { padding: 14px 14px 0; }
+    .stats-chart-bars { display: flex; height: 150px; align-items: stretch; gap: 3px; }
+    .stats-chart-col { position: relative; display: flex; min-width: 0; flex: 1 1 0; flex-direction: column; }
+    .stats-chart-stack { position: relative; flex: 1; border-bottom: 1px solid #dbe4e0; }
+    .stats-chart-bar { position: absolute; right: 0; left: 0; border-radius: 2px 2px 0 0; }
+    .stats-chart-bar.is-ok { bottom: 0; background: #4d8f79; }
+    .stats-chart-bar.is-err { top: 0; z-index: 2; background: #c04b45; }
+    .stats-chart-label { margin-top: 5px; overflow: hidden; color: #82928e; font: 9px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+    .stats-chart-foot { display: flex; align-items: center; gap: 14px; padding: 10px 14px 12px; color: #71827e; font-size: 11px; }
+    .stats-chart-legend { display: inline-flex; align-items: center; gap: 6px; }
+    .stats-chart-legend .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .stats-chart-legend .dot.is-ok { background: #4d8f79; }
+    .stats-chart-legend .dot.is-err { background: #c04b45; }
+    .stats-bars { display: grid; gap: 9px; padding: 12px 14px 14px; }
+    .stats-bar { display: grid; grid-template-columns: minmax(92px, 26%) minmax(0, 1fr) 54px 48px; gap: 10px; align-items: center; min-width: 0; }
+    .stats-bar-name { overflow: hidden; color: #4a615b; font: 11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .stats-bar-track { height: 8px; overflow: hidden; background: #e5ece9; border-radius: 999px; }
+    .stats-bar-fill { display: block; height: 100%; min-width: 2px; border-radius: 999px; }
+    .stats-bar-fill.status-2xx, .stats-bar-fill.is-completed, .stats-bar-fill.is-upstream { background: #4d8f79; }
+    .stats-bar-fill.status-3xx, .stats-bar-fill.is-connecting { background: #5a86b8; }
+    .stats-bar-fill.status-4xx, .stats-bar-fill.is-warning { background: #c08a2e; }
+    .stats-bar-fill.status-5xx, .stats-bar-fill.is-error { background: #c04b45; }
+    .stats-bar-fill.status-pending { background: #aab8b3; }
+    .stats-bar-fill.is-streaming { background: #7ba0e0; }
+    .stats-bar-fill.is-selector { background: #7b5aa6; }
+    .stats-bar-fill.is-model { background: #5a6db8; }
+    .stats-bar-fill.is-method { background: #a44a6e; }
+    .stats-bar-count { color: #314743; font: 700 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; text-align: right; }
+    .stats-bar-pct { color: #82928e; font: 11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; text-align: right; }
+    .stats-table { width: 100%; padding: 0 4px 4px; border-collapse: collapse; table-layout: fixed; }
+    .stats-table td { padding: 8px 14px; border-top: 1px solid #e5ece9; font: 11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .stats-table td:first-child { border-top: 0; }
+    .stats-table-method { width: 64px; color: #a44a6e; font-weight: 700; }
+    .stats-table-path { overflow: hidden; color: #213633; text-overflow: ellipsis; white-space: nowrap; }
+    .stats-table-count { width: 64px; color: #314743; font-weight: 700; text-align: right; }
+    .stats-empty { display: grid; justify-items: center; gap: 8px; padding: 56px 20px; color: #7b8b87; text-align: center; }
+    .stats-empty svg { width: 30px; height: 30px; }
+    .stats-empty p { margin: 0; color: #4a615b; font-size: 14px; font-weight: 700; }
+    .stats-empty span { font-size: 12px; }
+    :root[data-theme="dark"] .stats-kpi, :root[data-theme="dark"] .stats-panel { background: #101a17; border-color: #2b403a; }
+    :root[data-theme="dark"] .stats-window { color: #8ea69e; background: #172622; border-color: #30463f; }
+    :root[data-theme="dark"] .stats-window:hover { color: #d2e3dc; border-color: #527b6d; }
+    :root[data-theme="dark"] .stats-window.is-active { color: #173d34; background: #cbe86b; border-color: #cbe86b; }
+    :root[data-theme="dark"] .stats-kpi-label, :root[data-theme="dark"] .stats-panel-meta, :root[data-theme="dark"] .stats-bar-pct, :root[data-theme="dark"] .stats-chart-label { color: #879e96; }
+    :root[data-theme="dark"] .stats-kpi-value, :root[data-theme="dark"] .stats-panel-head h3, :root[data-theme="dark"] .stats-table-path { color: #dce9e4; }
+    :root[data-theme="dark"] .stats-kpi small { color: #879e96; }
+    :root[data-theme="dark"] .stats-kpi.is-alert .stats-kpi-value, :root[data-theme="dark"] .stats-kpi.is-alert small { color: #f3aaa6; }
+    :root[data-theme="dark"] .stats-bar-track { background: #263734; }
+    :root[data-theme="dark"] .stats-chart-stack { border-color: #2b403a; }
+    :root[data-theme="dark"] .stats-bar-name { color: #a9bdb6; }
+    :root[data-theme="dark"] .stats-bar-count, :root[data-theme="dark"] .stats-table-count { color: #d1dfd9; }
+    :root[data-theme="dark"] .stats-table td { border-color: #293d38; }
+    :root[data-theme="dark"] .stats-empty { color: #8ba198; }
+    :root[data-theme="dark"] .stats-empty p { color: #a9bdb6; }
+    @media (max-width: 760px) { .stats-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stats-grid { grid-template-columns: 1fr; } .stats-chart-bars { height: 120px; } .stats-bar { grid-template-columns: minmax(70px, 24%) minmax(0, 1fr) 46px 42px; } .stats-panel-head { display: block; } .stats-panel-meta { display: block; margin-top: 2px; white-space: normal; } }
   </style>
 </head>
 <body>
@@ -376,7 +448,7 @@
         <div class="identity">
           <div class="brand-mark" title="AGW">AGW</div>
         </div>
-        <div class="telemetry-tabbar" role="tablist" aria-label="工作区视图"><button class="telemetry-tab" type="button" role="tab" id="selectors-tab" aria-selected="true" aria-controls="selectors-panel" data-telemetry-tab="selectors"><span class="live-dot"></span><span>AppSelector</span><span class="tab-count" data-selector-tab-count>0</span></button><button class="telemetry-tab" type="button" role="tab" id="routing-tab" aria-selected="false" aria-controls="routing-panel" data-telemetry-tab="routing"><span class="live-dot"></span><span>Routing</span><span class="tab-count" data-upstream-tab-count>0</span></button><button class="telemetry-tab" type="button" role="tab" id="sessions-tab" aria-selected="false" aria-controls="sessions-panel" data-telemetry-tab="sessions"><span class="live-dot"></span><span>Sessions</span><span class="tab-count" data-session-count>0</span></button><button class="telemetry-tab" type="button" role="tab" id="logs-tab" aria-selected="false" aria-controls="logs-panel" data-telemetry-tab="logs"><span class="live-dot"></span><span>Logs</span><span class="tab-count" data-log-count>0</span></button></div>
+        <div class="telemetry-tabbar" role="tablist" aria-label="工作区视图"><button class="telemetry-tab" type="button" role="tab" id="selectors-tab" aria-selected="true" aria-controls="selectors-panel" data-telemetry-tab="selectors"><span class="live-dot"></span><span>AppSelector</span><span class="tab-count" data-selector-tab-count>0</span></button><button class="telemetry-tab" type="button" role="tab" id="routing-tab" aria-selected="false" aria-controls="routing-panel" data-telemetry-tab="routing"><span class="live-dot"></span><span>Routing</span><span class="tab-count" data-upstream-tab-count>0</span></button><button class="telemetry-tab" type="button" role="tab" id="sessions-tab" aria-selected="false" aria-controls="sessions-panel" data-telemetry-tab="sessions"><span class="live-dot"></span><span>Sessions</span><span class="tab-count" data-session-count>0</span></button><button class="telemetry-tab" type="button" role="tab" id="stats-tab" aria-selected="false" aria-controls="stats-panel" data-telemetry-tab="stats"><span class="live-dot"></span><span>Stats</span></button><button class="telemetry-tab" type="button" role="tab" id="logs-tab" aria-selected="false" aria-controls="logs-panel" data-telemetry-tab="logs"><span class="live-dot"></span><span>Logs</span><span class="tab-count" data-log-count>0</span></button></div>
         <div class="appbar-actions">
         {{if .AllowDebug}}<label class="debug-toggle" title="记录客户端请求头；日志可能包含认证信息">
           <input id="debug-toggle" type="checkbox"{{if .Debug}} checked{{end}}>
@@ -407,6 +479,7 @@
       </div>
       </div>
       <div class="telemetry-panel" id="sessions-panel" role="tabpanel" aria-labelledby="sessions-tab" hidden><div class="session-table-head" role="row"><span></span><span>Session</span><span>Selector</span><span>Upstream</span><span>Model</span><span>State</span><span>Status</span><span>Send</span><span>Receive</span><span>Duration</span><span></span></div><div id="session-list" class="session-list"></div></div>
+      <div class="telemetry-panel" id="stats-panel" role="tabpanel" aria-labelledby="stats-tab" hidden><div id="stats-view" class="stats-view"></div></div>
       <div class="telemetry-panel" id="logs-panel" role="tabpanel" aria-labelledby="logs-tab" hidden><div class="log-toolbar"><span class="tab-connection" data-log-connection>SSE connected</span><button class="text-button" type="button" data-log-pretty title="格式化 JSON" aria-label="格式化 JSON" aria-pressed="false"><i data-lucide="braces"></i>pretty</button></div><pre id="log-stream"></pre></div>
     </section>
   </main>
@@ -1233,6 +1306,42 @@
       if (sessionGestureActive) return;
       scheduleSessionReconcile();
     });
+    const statsView = document.getElementById('stats-view');
+    let statsWindow = 'all';
+    let statsEvents = null;
+    let pendingStatsHTML = null;
+    let statsRenderTimer = null;
+    function applyStatsHTML(html) {
+      if (!statsView) return;
+      statsView.innerHTML = html;
+      renderIcons(statsView);
+      const bar = statsView.querySelector('[data-stats-window]');
+      const win = bar ? bar.dataset.statsWindow : 'all';
+      if (win !== statsWindow) { statsWindow = win; connectStatsStream(); }
+    }
+    function connectStatsStream() {
+      if (statsEvents) statsEvents.close();
+      statsEvents = new EventSource('/stats/stream?window=' + statsWindow);
+      statsEvents.addEventListener('stats', event => {
+        pendingStatsHTML = event.data;
+        if (statsRenderTimer) return;
+        statsRenderTimer = setTimeout(() => {
+          statsRenderTimer = null;
+          if (pendingStatsHTML != null) { applyStatsHTML(pendingStatsHTML); pendingStatsHTML = null; }
+        }, 120);
+      });
+    }
+    statsView.addEventListener('click', function (event) {
+      const button = event.target.closest('[data-stats-window-button]');
+      if (!button) return;
+      const win = button.dataset.statsWindowButton;
+      if (win === statsWindow) return;
+      statsWindow = win;
+      fetch('/stats?window=' + win).then(response => response.text()).then(applyStatsHTML).catch(() => {});
+      connectStatsStream();
+    });
+    fetch('/stats').then(response => response.text()).then(applyStatsHTML).catch(() => {});
+    connectStatsStream();
     setTheme(document.documentElement.dataset.theme || 'light');
     const initialView = viewFromHash();
     if (initialView) applyTelemetryView(initialView);

@@ -1639,6 +1639,11 @@ func TestBasicAuthProtectsManagementPaths(t *testing.T) {
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated secrets request = %d", recorder.Code)
 	}
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/stats", nil))
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated stats request = %d", recorder.Code)
+	}
 
 	request := httptest.NewRequest(http.MethodGet, "/sessions", nil)
 	request.SetBasicAuth("admin", "wrong")
@@ -1999,13 +2004,13 @@ func TestConfigPageDefaultsToDarkSessionJournal(t *testing.T) {
 		t.Fatalf("config page Cache-Control = %q, want no-store", got)
 	}
 	content := recorder.Body.String()
-	for _, expected := range []string{"agw-theme", "'dark'", "theme-toggle", "telemetry-tabbar", "SSE connected", "sessions-panel", "logs-panel", "aria-selected=\"true\"", "Compatible AppSelectors", "selector-table-head", ">Rules<", "updateSelectorSummary", "match-value-field", "match-value-actions", "selector-no-rules", "No rules - matches all requests", ">Actions<", "data-selector", "data-drop-zone", "drop-indicator", "松手后放到这里", "data-duplicate-row", "data-duplicate-selector", "session-table-head", ">Selector<", ">Upstream<", ">Model<", ">Send<", ">Receive<", ">Duration<", "data-payload-modal", "data-log-pretty", "data-log-connection", "yaml-config", "data-config-modal", "data-config-yaml", "data-config-yaml-merged", "secrets-config", "data-secrets-modal", "data-secrets-yaml", "data-session-count", "data-selector-tab-count", "data-upstream-tab-count", "data-log-count", `class="tab-count"`, `class="add-row"`, `id="add-selector"`, `id="routing-tab"`, `id="selectors-tab"`, `data-telemetry-tab="routing"`, `data-telemetry-tab="selectors"`, `id="routing-panel" role="tabpanel" aria-labelledby="routing-tab" hidden`, `id="selectors-panel" role="tabpanel" aria-labelledby="selectors-tab"`, `id="sessions-panel" role="tabpanel" aria-labelledby="sessions-tab" hidden`, "viewFromHash", "hashchange", "location.hash", "scheduleSessionReconcile", "sessionGestureActive", "lastSessionHTML", "data-tab-menu-button", `class="tab-menu-button"`, "closeTabMenu", "hamburger-mode", "updateTabLayoutMode", `rel="manifest"`, "og:title", `name="theme-color"`, `rel="icon" href="/favicon.ico"`, "apple-touch-icon", "icon-512.png", `>AppSelector<`, `>Routing<`, `>Sessions<`, `>Logs<`, `data-rule-type-option="method"`} {
+	for _, expected := range []string{"agw-theme", "'dark'", "theme-toggle", "telemetry-tabbar", "SSE connected", "sessions-panel", "logs-panel", "aria-selected=\"true\"", "Compatible AppSelectors", "selector-table-head", ">Rules<", "updateSelectorSummary", "match-value-field", "match-value-actions", "selector-no-rules", "No rules - matches all requests", ">Actions<", "data-selector", "data-drop-zone", "drop-indicator", "松手后放到这里", "data-duplicate-row", "data-duplicate-selector", "session-table-head", ">Selector<", ">Upstream<", ">Model<", ">Send<", ">Receive<", ">Duration<", "data-payload-modal", "data-log-pretty", "data-log-connection", "yaml-config", "data-config-modal", "data-config-yaml", "data-config-yaml-merged", "secrets-config", "data-secrets-modal", "data-secrets-yaml", "data-session-count", "data-selector-tab-count", "data-upstream-tab-count", "data-log-count", `class="tab-count"`, `class="add-row"`, `id="add-selector"`, `id="routing-tab"`, `id="selectors-tab"`, `data-telemetry-tab="routing"`, `data-telemetry-tab="selectors"`, `id="routing-panel" role="tabpanel" aria-labelledby="routing-tab" hidden`, `id="selectors-panel" role="tabpanel" aria-labelledby="selectors-tab"`, `id="sessions-panel" role="tabpanel" aria-labelledby="sessions-tab" hidden`, "viewFromHash", "hashchange", "location.hash", "scheduleSessionReconcile", "sessionGestureActive", "lastSessionHTML", "data-tab-menu-button", `class="tab-menu-button"`, "closeTabMenu", "hamburger-mode", "updateTabLayoutMode", `rel="manifest"`, "og:title", `name="theme-color"`, `rel="icon" href="/favicon.ico"`, "apple-touch-icon", "icon-512.png", `>AppSelector<`, `>Routing<`, `>Sessions<`, `>Logs<`, `data-rule-type-option="method"`, `id="stats-tab"`, `data-telemetry-tab="stats"`, `id="stats-panel"`, `id="stats-view"`, "EventSource('/stats/stream?window=' + statsWindow)"} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("config page missing %q", expected)
 		}
 	}
-	if strings.Count(content, `class="live-dot"`) != 4 {
-		t.Fatalf("all four workspace tabs should carry a live indicator")
+	if strings.Count(content, `class="live-dot"`) != 5 {
+		t.Fatalf("all five workspace tabs should carry a live indicator")
 	}
 	if strings.Index(content, `id="selectors-tab"`) > strings.Index(content, `id="routing-tab"`) {
 		t.Fatalf("AppSelector should be the first tab")
@@ -2152,6 +2157,260 @@ func TestConfigFragmentRendersSecretLockWithoutResolving(t *testing.T) {
 	}
 	if !strings.Contains(content, `<input type="hidden" data-auth-value value="">`) {
 		t.Fatalf("none-type upstream should render an empty hidden auth value, got:\n%s", content)
+	}
+}
+
+func TestStatsAggregation(t *testing.T) {
+	hub := newSessionHub()
+	defer hub.close()
+	base := time.Now().Add(-30 * time.Minute).Truncate(time.Second)
+	hub.mu.Lock()
+	hub.history = []*statsEntry{
+		{sessionID: "s1", started: base, completed: base.Add(2 * time.Second), status: 200, state: "completed", reqBytes: 50, respBytes: 100, model: "gpt-5", upstream: "openai", selector: "codex", method: "POST", path: "/responses"},
+		{sessionID: "s1", started: base.Add(time.Minute), completed: base.Add(time.Minute + 4*time.Second), status: 502, state: "completed", reqBytes: 50, respBytes: 40, model: "gpt-5", upstream: "openai", selector: "codex", method: "POST", path: "/responses", isError: true},
+		{sessionID: "s2", started: base.Add(2 * time.Minute), completed: base.Add(2*time.Minute + 500*time.Millisecond), status: 200, state: "completed", respBytes: 30, upstream: "openai", method: "GET", path: "/healthz"},
+	}
+	hub.mu.Unlock()
+
+	view := hub.stats("all")
+	if view.Requests != 3 || view.Sessions != 2 || view.Errors != 1 {
+		t.Fatalf("totals = %d requests / %d sessions / %d errors", view.Requests, view.Sessions, view.Errors)
+	}
+	if view.ErrorRate != "33%" {
+		t.Fatalf("error rate = %q, want 33%%", view.ErrorRate)
+	}
+	if view.AvgDuration != "2.167s" || view.P95Duration != "4s" || view.MaxDuration != "4s" {
+		t.Fatalf("latency avg/p95/max = %q/%q/%q", view.AvgDuration, view.P95Duration, view.MaxDuration)
+	}
+	if view.InBytes != "100 B" || view.OutBytes != "170 B" {
+		t.Fatalf("traffic in/out = %q/%q", view.InBytes, view.OutBytes)
+	}
+	if len(view.Buckets) != 3 {
+		t.Fatalf("minute buckets = %d, want 3", len(view.Buckets))
+	}
+	if view.Buckets[0].Count != 1 || view.Buckets[0].Errors != 0 || view.Buckets[1].Count != 1 || view.Buckets[1].Errors != 1 {
+		t.Fatalf("bucket counts = %#v", view.Buckets)
+	}
+	if len(view.Statuses) != 2 || view.Statuses[0].Name != "2xx 成功" || view.Statuses[0].Count != 2 {
+		t.Fatalf("status breakdown = %#v", view.Statuses)
+	}
+	if len(view.Upstreams) != 1 || view.Upstreams[0].Name != "openai" || view.Upstreams[0].Count != 3 {
+		t.Fatalf("upstream breakdown = %#v", view.Upstreams)
+	}
+	if len(view.Selectors) != 2 || view.Selectors[0].Name != "codex" || view.Selectors[1].Name != "未匹配" {
+		t.Fatalf("selector breakdown = %#v", view.Selectors)
+	}
+	if len(view.Models) != 2 || view.Models[0].Name != "gpt-5" || view.Models[0].Count != 2 || view.Models[1].Name != "未知模型" {
+		t.Fatalf("model breakdown = %#v", view.Models)
+	}
+	if len(view.TopPaths) != 2 || view.TopPaths[0].Path != "/responses" || view.TopPaths[0].Count != 2 {
+		t.Fatalf("top paths = %#v", view.TopPaths)
+	}
+}
+
+func TestStatsWindowFilter(t *testing.T) {
+	hub := newSessionHub()
+	defer hub.close()
+	now := time.Now()
+	hub.mu.Lock()
+	hub.history = []*statsEntry{
+		{sessionID: "old", started: now.Add(-2 * time.Hour), completed: now.Add(-2*time.Hour + time.Second), status: 200, state: "completed"},
+		{sessionID: "recent", started: now.Add(-10 * time.Minute), completed: now, status: 200, state: "completed"},
+	}
+	hub.mu.Unlock()
+
+	all := hub.stats("all")
+	if all.Requests != 2 || all.Sessions != 2 || all.Empty {
+		t.Fatalf("all-window totals = %#v", all)
+	}
+	hour := hub.stats("1h")
+	if hour.Requests != 1 || hour.Sessions != 1 || hour.Empty {
+		t.Fatalf("1h-window totals = %#v", hour)
+	}
+	day := hub.stats("24h")
+	if day.Requests != 2 || day.Empty {
+		t.Fatalf("24h-window totals = %#v", day)
+	}
+	if got := hub.stats("bogus").Window; got != "all" {
+		t.Fatalf("unknown window should normalize to all, got %q", got)
+	}
+	for _, view := range []statsView{all, hour, day} {
+		if len(view.Windows) != 5 {
+			t.Fatalf("window options for %q = %d, want 5", view.Window, len(view.Windows))
+		}
+	}
+	if !all.Windows[4].Active || !hour.Windows[0].Active || !day.Windows[1].Active {
+		t.Fatalf("active window flags wrong: %#v / %#v / %#v", all.Windows, hour.Windows, day.Windows)
+	}
+}
+
+func TestStatsTracksRequestsThroughProxy(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte("accepted"))
+	}))
+	defer upstream.Close()
+
+	hub := newSessionHub()
+	defer hub.close()
+	proxy := &Proxy{
+		Upstreams: []Upstream{{URL: upstream.URL, Authorization: &Authorization{Type: "none"}}},
+		Client:    http.DefaultClient,
+		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Sessions:  hub,
+	}
+	handler := requestLogger(proxy.Logger, proxy)
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader("payload"))
+	request.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	view := hub.stats("all")
+	if view.Requests != 1 || view.Sessions != 1 || view.Errors != 0 {
+		t.Fatalf("stats after proxied request = %#v", view)
+	}
+	if len(view.Statuses) != 1 || view.Statuses[0].Name != "2xx 成功" || view.Statuses[0].Count != 1 {
+		t.Fatalf("proxied 202 should count as 2xx: %#v", view.Statuses)
+	}
+	if len(hub.history) != 1 {
+		t.Fatalf("stats history should hold one entry, got %d", len(hub.history))
+	}
+}
+
+func TestStatsRouteRendersFragment(t *testing.T) {
+	hub := newSessionHub()
+	defer hub.close()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	proxy := &Proxy{Logger: logger, Sessions: hub}
+
+	empty := httptest.NewRecorder()
+	proxy.ServeHTTP(empty, httptest.NewRequest(http.MethodGet, "/stats", nil))
+	if empty.Code != http.StatusOK || !strings.Contains(empty.Body.String(), "暂无统计数据") {
+		t.Fatalf("empty stats fragment = %d %q", empty.Code, empty.Body.String())
+	}
+	if !strings.Contains(empty.Body.String(), "data-stats-window-button") {
+		t.Fatalf("empty stats fragment should still render the window filter: %q", empty.Body.String())
+	}
+
+	now := time.Now()
+	hub.mu.Lock()
+	hub.history = []*statsEntry{
+		{sessionID: "s1", started: now, completed: now.Add(time.Second), status: 200, state: "completed", reqBytes: 10, respBytes: 20, model: "gpt-5", upstream: "openai", selector: "codex", method: "POST", path: "/responses"},
+	}
+	hub.mu.Unlock()
+
+	recorder := httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/stats", nil))
+	content := recorder.Body.String()
+	for _, expected := range []string{"请求总数", "错误率", "请求时间分布", "HTTP 状态", "热门路径", "openai", "gpt-5", "codex", "stats-chart-bar", "/responses", `data-stats-window="all"`, `data-stats-window-button="1h"`, `data-stats-window-button="all"`} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("stats fragment missing %q:\n%s", expected, content)
+		}
+	}
+
+	windowed := httptest.NewRecorder()
+	proxy.ServeHTTP(windowed, httptest.NewRequest(http.MethodGet, "/stats?window=24h", nil))
+	windowContent := windowed.Body.String()
+	if !strings.Contains(windowContent, `data-stats-window="24h"`) || !strings.Contains(windowContent, `<button class="stats-window is-active" type="button" data-stats-window-button="24h"`) {
+		t.Fatalf("windowed stats fragment should mark 24h active:\n%s", windowContent)
+	}
+}
+
+func TestStatsBreakdownFoldsOthers(t *testing.T) {
+	hub := newSessionHub()
+	defer hub.close()
+	now := time.Now()
+	hub.mu.Lock()
+	for i := 0; i < 10; i++ {
+		hub.history = append(hub.history, &statsEntry{
+			sessionID: fmt.Sprintf("s%d", i), started: now, completed: now.Add(time.Second), status: 200, state: "completed",
+			model: fmt.Sprintf("model-%d", i), upstream: fmt.Sprintf("up-%d", i), selector: fmt.Sprintf("sel-%d", i),
+		})
+	}
+	hub.mu.Unlock()
+
+	view := hub.stats("all")
+	for name, dimension := range map[string][]statsBar{"model": view.Models, "upstream": view.Upstreams, "selector": view.Selectors} {
+		if len(dimension) != statsTopN+1 {
+			t.Fatalf("%s breakdown should keep %d rows plus 其他, got %d: %#v", name, statsTopN, len(dimension), dimension)
+		}
+		tail := dimension[len(dimension)-1]
+		if tail.Name != "其他" || tail.Count != 2 {
+			t.Fatalf("%s breakdown should fold the two rarest entries into 其他 with count 2, got %#v", name, tail)
+		}
+	}
+}
+
+func TestStatsPersistsAcrossRestart(t *testing.T) {
+	dir := t.TempDir()
+	hub := newSessionHubPersistent(dir)
+	tracked := hub.start(httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+	tracked.connected(200)
+	tracked.setUpstream("openai")
+	tracked.setAppSelector("codex")
+	tracked.setRequestBody("application/json", []byte(`{"model":"gpt-5"}`))
+	tracked.complete(200, 1234, nil)
+	hub.close()
+
+	lines, err := os.ReadFile(filepath.Join(dir, "stats.jsonl"))
+	if err != nil || len(lines) == 0 {
+		t.Fatalf("stats log not written: %v", err)
+	}
+	if strings.Count(string(lines), "\n") != 1 {
+		t.Fatalf("stats log should hold exactly one completed request, got:\n%s", lines)
+	}
+
+	restarted := newSessionHubPersistent(dir)
+	defer restarted.close()
+	view := restarted.stats("all")
+	if view.Requests != 1 || view.Sessions != 1 || view.Errors != 0 {
+		t.Fatalf("restored stats = %#v", view)
+	}
+	if len(view.Models) != 1 || view.Models[0].Name != "gpt-5" || view.Models[0].Count != 1 {
+		t.Fatalf("restored model breakdown = %#v", view.Models)
+	}
+	if len(view.Upstreams) != 1 || view.Upstreams[0].Name != "openai" {
+		t.Fatalf("restored upstream breakdown = %#v", view.Upstreams)
+	}
+	if len(view.Selectors) != 1 || view.Selectors[0].Name != "codex" {
+		t.Fatalf("restored selector breakdown = %#v", view.Selectors)
+	}
+}
+
+func TestStatsBackfillsFromSessionFiles(t *testing.T) {
+	dir := t.TempDir()
+	sessionDir := filepath.Join(dir, "sessions")
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	record := sessionRecord{ID: "s-legacy", Requests: []*sessionRequest{
+		{Sequence: 1, Method: "POST", Path: "/responses", StartedAt: now.Add(-time.Hour), CompletedAt: now.Add(-time.Hour + time.Second), Status: 200, State: "completed", RequestBytes: 10, ResponseBytes: 20, Model: "legacy-model", Upstream: "legacy-up"},
+		{Sequence: 2, Method: "POST", Path: "/responses", StartedAt: now.Add(-30 * time.Minute), Status: 0, State: "streaming"},
+	}}
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionDir, "s-legacy.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	hub := newSessionHubPersistent(dir)
+	view := hub.stats("all")
+	if view.Requests != 1 {
+		t.Fatalf("backfilled stats should skip the in-flight request, got %d", view.Requests)
+	}
+	if len(view.Models) != 1 || view.Models[0].Name != "legacy-model" {
+		t.Fatalf("backfilled model breakdown = %#v", view.Models)
+	}
+	hub.close()
+
+	// A restart must read stats.jsonl as the single source of truth and must
+	// not double-count the backfilled entries.
+	restarted := newSessionHubPersistent(dir)
+	defer restarted.close()
+	if got := restarted.stats("all").Requests; got != 1 {
+		t.Fatalf("restart after backfill should keep one request, got %d", got)
 	}
 }
 

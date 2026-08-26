@@ -72,6 +72,15 @@ type sessionHub struct {
 	nextID      uint64
 	payloads    PayloadStore
 	sessionDir  string
+	// history keeps one statsEntry per request this process has seen, plus
+	// requests restored from the persisted stats log at startup. Unlike the
+	// journal records it is never evicted, so stats aggregate everything
+	// currently available instead of the recent-session window.
+	history    []*statsEntry
+	statsIndex map[uint64]int
+	// statsFile appends one JSON line per completed request to data/stats.jsonl
+	// so stats survive restarts; nil in non-persistent mode.
+	statsFile *os.File
 }
 
 type trackedSession struct {
@@ -128,12 +137,14 @@ func newSessionHub() *sessionHub {
 }
 
 // newSessionHubPersistent builds a session hub whose metadata and payloads
-// survive restarts: records are written as JSON under dir/sessions and payload
-// bodies live under dir/payloads. Existing records are loaded on startup.
+// survive restarts: records are written as JSON under dir/sessions, payload
+// bodies live under dir/payloads and completed requests are appended to the
+// stats log under dir/stats.jsonl. Existing data is loaded on startup.
 func newSessionHubPersistent(dir string) *sessionHub {
 	payloadDir := filepath.Join(dir, "payloads")
 	hub := newSessionHubWith(FilePayloadsAt(payloadDir))
 	hub.sessionDir = dir
+	hub.loadStatsHistory(dir)
 	if err := os.MkdirAll(filepath.Join(dir, "sessions"), 0755); err != nil {
 		return hub
 	}
@@ -208,7 +219,7 @@ func (h *sessionHub) loadRecords() {
 // newSessionHubWith builds a session hub backed by the given payload store.
 // A js/wasm build can pass MemoryPayloads() so nothing touches the filesystem.
 func newSessionHubWith(payloads PayloadStore) *sessionHub {
-	return &sessionHub{records: make(map[string]*sessionRecord), subscribers: make(map[chan struct{}]struct{}), payloads: payloads}
+	return &sessionHub{records: make(map[string]*sessionRecord), subscribers: make(map[chan struct{}]struct{}), payloads: payloads, statsIndex: make(map[uint64]int)}
 }
 
 func (h *sessionHub) start(r *http.Request) *trackedSession {
@@ -234,6 +245,7 @@ func (h *sessionHub) start(r *http.Request) *trackedSession {
 		record.Requests = record.Requests[len(record.Requests)-maxRequestsPerSession:]
 		h.removePayloads(pruned)
 	}
+	h.syncStatsEntry(id, request)
 	h.publishLocked()
 	h.evictLocked()
 	h.saveRecordLocked(id)
@@ -376,8 +388,13 @@ func (h *sessionHub) updateRequest(tracked *trackedSession, update func(*session
 	}
 	for _, request := range record.Requests {
 		if request.Sequence == tracked.sequence {
+			wasFinal := isFinalState(request.State)
 			update(request)
 			record.LastSeen = time.Now()
+			if !wasFinal && isFinalState(request.State) {
+				h.persistStatsEntryLocked(record.ID, request)
+			}
+			h.syncStatsEntry(record.ID, request)
 			h.publishLocked()
 			h.saveRecordLocked(tracked.sessionID)
 			return
@@ -399,6 +416,7 @@ func (h *sessionHub) captureResponse(tracked *trackedSession, data []byte) {
 		request.Bytes += len(data)
 		request.ResponseBytes += int64(len(data))
 		record.LastSeen = time.Now()
+		h.syncStatsEntry(record.ID, request)
 		payload := request.ResponsePayload
 		shouldPublish := request.LastPreview.IsZero() || time.Since(request.LastPreview) >= responsePreviewInterval
 		if shouldPublish {
@@ -466,10 +484,34 @@ func (h *sessionHub) close() {
 	}
 	payloads := h.payloads
 	h.payloads = nil
+	statsFile := h.statsFile
+	h.statsFile = nil
 	h.mu.Unlock()
 	if payloads != nil {
 		_ = payloads.Close()
 	}
+	if statsFile != nil {
+		_ = statsFile.Close()
+	}
+}
+
+// syncStatsEntry inserts or refreshes the in-memory stats entry for a request
+// so that stats always reflect the latest state, including bytes streamed so
+// far. It must be called with h.mu held, except during startup while the hub
+// is not yet shared.
+func (h *sessionHub) syncStatsEntry(sessionID string, request *sessionRequest) {
+	if index, ok := h.statsIndex[request.Sequence]; ok && index < len(h.history) {
+		updateStatsEntry(h.history[index], request)
+		return
+	}
+	h.statsIndex[request.Sequence] = len(h.history)
+	h.history = append(h.history, makeStatsEntry(sessionID, request))
+}
+
+// seedStatsEntry records a restored request into the stats history at
+// startup. It must be called with h.mu held (or before the hub is shared).
+func (h *sessionHub) seedStatsEntry(sessionID string, request *sessionRequest) {
+	h.syncStatsEntry(sessionID, request)
 }
 
 func (h *sessionHub) requestKey(tracked *trackedSession) string {
@@ -653,7 +695,11 @@ func (p *Proxy) serveSessionPayload(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeSessionSSE(w io.Writer, content string) error {
-	if _, err := io.WriteString(w, "event: sessions\n"); err != nil {
+	return writeNamedSSE(w, "sessions", content)
+}
+
+func writeNamedSSE(w io.Writer, event, content string) error {
+	if _, err := io.WriteString(w, "event: "+event+"\n"); err != nil {
 		return err
 	}
 	for _, line := range strings.Split(strings.ReplaceAll(content, "\r", ""), "\n") {

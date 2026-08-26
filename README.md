@@ -15,7 +15,7 @@ go run ./cmd/agw
 使用 `--allow-debug` 允许 request header 日志生效：未设置时，即使 `config.yaml` 里写了 `debug: true`、或通过页面提交修改，运行时都保持关闭（页面也不会显示 Debug headers 开关）；设置后，配置里的 `debug: true` 才会在运行时生效，并可通过页面 toggle 切换保存。
 日志默认只进 `/logs` 实时流（保留最近 100 条），**不写入 stderr**，避免托管方从终端日志里看到敏感信息；需要同时输出到 stderr 时加 `-log-stderr`（或 `--log-stderr`）。
 
-公开托管时建议设置管理面 Basic Auth：可通过 `--admin-user` / `--admin-password` 或环境变量 `AGW_ADMIN_USER` / `AGW_ADMIN_PASSWORD` 配置（两者必须同时设置，flag 优先于环境变量；密码建议走环境变量，避免出现在进程列表和历史记录里）。设置后，配置页 `/`、`/config`、`/logs` 和 Session journal（`/sessions*`）这些管理路径需要 HTTP Basic Auth 才能访问，代理路径（`/v1/...`）保持开放；未设置时管理面不启用认证，保持原来的行为。凭据不会写入配置或出现在配置页中。
+公开托管时建议设置管理面 Basic Auth：可通过 `--admin-user` / `--admin-password` 或环境变量 `AGW_ADMIN_USER` / `AGW_ADMIN_PASSWORD` 配置（两者必须同时设置，flag 优先于环境变量；密码建议走环境变量，避免出现在进程列表和历史记录里）。设置后，配置页 `/`、`/config`、`/logs`、Session journal（`/sessions*`）和 Stats（`/stats*`）这些管理路径需要 HTTP Basic Auth 才能访问，代理路径（`/v1/...`）保持开放；未设置时管理面不启用认证，保持原来的行为。凭据不会写入配置或出现在配置页中。
 
 ### Secrets（浏览器本地保存，服务端只存内存）
 
@@ -210,6 +210,21 @@ upstreams:
 日志下方的 Session journal 通过 `/sessions` 和 `/sessions/stream` 展示最近的 API 请求；每个入站请求由服务端分配独立 UUIDv7，不会依据客户端的 `Session-Id`、`Thread-Id` 或 `X-Client-Request-Id` 合并卡片。卡片直接显示请求中的 `model`：未命中 rewrite 时显示原值（如 `gpt-5.6-luna`），命中 rewrite 时显示 `原值 => 改写值`（如 `deepseek-v4-flash => gpt-5.6-luna`），其中改写值即实际转发的值。卡片可展开查看状态、耗时、传输量、客户端 request header 与请求时间线；`Authorization`、cookie、API key 等敏感 header 会脱敏。streaming 期间卡片在页面里做增量更新（只就地更新摘要、概览和事件区域），不会整块重绘导致频闪。Session journal 由进程内结构化会话状态驱动，与日志流相互独立。
 对于 JSON、SSE 和其他文本内容，Session journal 会截获请求体及实际转发给客户端的响应。正文不会塞入 Session SSE 事件：请求体与响应都写入进程专用的临时文件，卡片提供 "Intercepted request / response" 按钮，点击后在 modal 中按需加载（响应默认显示最新 64 KiB 预览），也可以在 modal 里打开完整原文（`?full=1`，新标签页）。临时文件会在 gateway 退出时删除。
 服务端日志使用 `log/slog` 输出为每行一个 JSON 对象：`msg` 是语义化消息（如 `server listening`、`route matched`、`upstream attempt`、`upstream response`），其余信息全部在结构化字段中，并按级别区分 `INFO` / `WARN` / `ERROR`；实时日志通过 `/logs` 的 SSE 推送，保留最近 100 条。
+
+### Stats（数据统计与可视化）
+
+管理页面的 **Stats** 标签页（`/stats` 片段 + `/stats/stream` SSE 实时推送）基于**完整的请求历史**做多维聚合：每个经代理的请求在开始、流式传输、完成时都会同步进内存统计历史（与 Session journal 的"最近 48 个会话"驱逐策略相互独立，历史不会被截断）。配置了 `--data-dir` 时，**完成的请求会以 JSON 行追加到 `data/stats.jsonl`**（与 `logs.jsonl` 同模式），重启后完整恢复，统计覆盖所有可用数据；首次启动（或 stats 日志缺失）时会从已持久化的 session 文件一次性回填历史，避免升级后从零开始。未配置 data dir 时统计仅存内存。
+
+支持**时间窗口筛选**：面板顶部提供 `1 小时 / 24 小时 / 7 天 / 30 天 / 全部` 按钮，通过 `?window=` 参数切换，SSE 实时流会随所选窗口同步刷新。各维度内容：
+
+- **概览 KPI**：请求总数、会话数、错误率（4xx/5xx 或客户端断开 / 超时 / 中断）、平均 / P95 / 最大耗时、上行与下行流量。
+- **请求时间分布**：按数据跨度自动选择聚合粒度（1 分钟 / 5 分钟 / 15 分钟 / 小时 / 6 小时 / 天，最多约 96 根柱），绿色柱为请求量、红色段为错误量，悬停可查看每个时间桶的明细。
+- **HTTP 状态**：2xx / 3xx / 4xx / 5xx / 处理中 的占比分布。
+- **会话状态**：完成、流式传输中、连接中、客户端断开、超时、中断。
+- **Upstream / AppSelector / 模型 / 请求方法**：各维度的 Top 8 排行（其余归入"其他"），配占比条。
+- **热门路径**：按方法 + 路径聚合的 Top 8 请求路径。
+
+Stats 与 Session journal 同源，随会话实时更新；`/stats` 和 `/stats/stream` 与其他管理路径一样受 Basic Auth 保护。
 
 ```bash
 curl http://localhost:8080/chat/completions \
