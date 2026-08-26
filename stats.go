@@ -68,7 +68,7 @@ func windowOptions(window string) []statsWindow {
 // template stays free of logic.
 type statsView struct {
 	Requests    int64
-	Sessions    int
+	Sessions    int64
 	Errors      int64
 	ErrorRate   string
 	InBytes     string
@@ -87,6 +87,8 @@ type statsView struct {
 	Models      []statsBar
 	Methods     []statsBar
 	TopPaths    []statsPath
+	Daily       []statsDailyRow
+	SeriesJSON  string
 	Window      string
 	Windows     []statsWindow
 	Empty       bool
@@ -101,6 +103,7 @@ type statsWindow struct {
 type statsBucket struct {
 	Label  string
 	Time   string
+	Unix   int64
 	Count  int64
 	Errors int64
 	H      int
@@ -312,7 +315,7 @@ func (h *sessionHub) stats(window string) statsView {
 	}
 	h.mu.Unlock()
 
-	view := statsView{Sessions: len(sessions), Empty: len(entries) == 0, Window: window, Windows: windowOptions(window)}
+	view := statsView{Sessions: int64(len(sessions)), Empty: len(entries) == 0, Window: window, Windows: windowOptions(window)}
 	if len(entries) == 0 {
 		return view
 	}
@@ -362,6 +365,8 @@ func (h *sessionHub) stats(window string) statsView {
 	view.Models = nameBreakdown(entries, func(e statsEntry) string { return e.model }, "未知模型")
 	view.Methods = nameBreakdown(entries, func(e statsEntry) string { return e.method }, "未知方法")
 	view.TopPaths = topPaths(entries)
+	view.Daily = dailyRows(entries)
+	view.SeriesJSON = buildSeriesJSON(entries, view.Buckets, view.Statuses, fmt.Sprintf("%s · 每%s聚合 · 峰值 %d 请求", view.SpanLabel, view.BucketLabel, view.MaxBucket))
 	return view
 }
 
@@ -418,6 +423,7 @@ func bucketSeries(entries []statsEntry) ([]statsBucket, string, string) {
 	for index := range buckets {
 		bucket := &buckets[index]
 		bucketTime := minTime.Add(time.Duration(index) * width)
+		bucket.Unix = bucketTime.Unix()
 		bucket.Time = bucketTime.Format(labelLayout)
 		if index%labelStep == 0 || index == count-1 {
 			bucket.Label = bucket.Time
@@ -611,6 +617,153 @@ func sortedNames(counts map[string]int64) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// statsSeries is the structured chart payload embedded in the stats fragment
+// and consumed by the browser-side lightweight-charts / Chart.js renderers.
+type statsSeries struct {
+	Buckets  []statsSeriesBucket `json:"buckets"`
+	Heatmap  []statsHeatCell     `json:"heatmap"`
+	Statuses []statsSeriesStatus `json:"statuses"`
+	Meta     string              `json:"meta"`
+}
+
+type statsSeriesBucket struct {
+	Time   int64 `json:"t"`
+	Count  int64 `json:"count"`
+	Errors int64 `json:"errors"`
+}
+
+type statsSeriesStatus struct {
+	Name  string `json:"name"`
+	Count int64  `json:"count"`
+}
+
+// statsHeatCell is one non-empty hour-of-day × weekday cell of the activity
+// heatmap; day follows time.Weekday (0 = Sunday), matching the chart labels.
+type statsHeatCell struct {
+	Hour  int   `json:"hour"`
+	Day   int   `json:"day"`
+	Count int64 `json:"count"`
+}
+
+func buildSeriesJSON(entries []statsEntry, buckets []statsBucket, statuses []statsBar, meta string) string {
+	series := statsSeries{
+		Buckets:  make([]statsSeriesBucket, 0, len(buckets)),
+		Heatmap:  heatmapCells(entries),
+		Statuses: make([]statsSeriesStatus, 0, len(statuses)),
+		Meta:     meta,
+	}
+	for _, bucket := range buckets {
+		series.Buckets = append(series.Buckets, statsSeriesBucket{Time: bucket.Unix, Count: bucket.Count, Errors: bucket.Errors})
+	}
+	for _, status := range statuses {
+		series.Statuses = append(series.Statuses, statsSeriesStatus{Name: status.Name, Count: status.Count})
+	}
+	data, err := json.Marshal(series)
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
+}
+
+// heatmapCells aggregates requests into the hour-of-day × weekday grid using
+// local time, mirroring the activity heatmap of the reference dashboard.
+func heatmapCells(entries []statsEntry) []statsHeatCell {
+	counts := make(map[[2]int]int64)
+	for _, entry := range entries {
+		if entry.started.IsZero() {
+			continue
+		}
+		local := entry.started.Local()
+		counts[[2]int{local.Hour(), int(local.Weekday())}]++
+	}
+	cells := make([]statsHeatCell, 0, len(counts))
+	for key, count := range counts {
+		cells = append(cells, statsHeatCell{Hour: key[0], Day: key[1], Count: count})
+	}
+	sort.Slice(cells, func(i, j int) bool {
+		if cells[i].Day != cells[j].Day {
+			return cells[i].Day < cells[j].Day
+		}
+		return cells[i].Hour < cells[j].Hour
+	})
+	return cells
+}
+
+// statsDailyRow is one row of the per-day usage table, rendered server side.
+type statsDailyRow struct {
+	Date     string
+	Requests int64
+	Errors   int64
+	InBytes  string
+	OutBytes string
+	Avg      string
+}
+
+// dailyRows groups requests by local calendar day and keeps the most recent
+// days, newest first.
+func dailyRows(entries []statsEntry) []statsDailyRow {
+	type dayAgg struct {
+		requests, errors, inBytes, outBytes int64
+		durations                           []time.Duration
+	}
+	days := make(map[string]*dayAgg)
+	for _, entry := range entries {
+		if entry.started.IsZero() {
+			continue
+		}
+		day := entry.started.Local().Format("2006-01-02")
+		agg := days[day]
+		if agg == nil {
+			agg = &dayAgg{}
+			days[day] = agg
+		}
+		agg.requests++
+		if entry.isError {
+			agg.errors++
+		}
+		agg.inBytes += entry.reqBytes
+		agg.outBytes += entry.respBytes
+		if !entry.completed.IsZero() && entry.completed.After(entry.started) {
+			agg.durations = append(agg.durations, entry.completed.Sub(entry.started))
+		}
+	}
+	order := make([]string, 0, len(days))
+	for day := range days {
+		order = append(order, day)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(order)))
+	if len(order) > 30 {
+		order = order[:30]
+	}
+	rows := make([]statsDailyRow, 0, len(order))
+	for _, day := range order {
+		agg := days[day]
+		avg := "-"
+		if len(agg.durations) > 0 {
+			var sum time.Duration
+			for _, duration := range agg.durations {
+				sum += duration
+			}
+			avg = formatDuration(time.Duration(int64(sum) / int64(len(agg.durations))))
+		}
+		rows = append(rows, statsDailyRow{Date: day, Requests: agg.requests, Errors: agg.errors, InBytes: formatBytes64(agg.inBytes), OutBytes: formatBytes64(agg.outBytes), Avg: avg})
+	}
+	return rows
+}
+
+// compactCount abbreviates large counts like the reference dashboard's
+// formatCompact: 12345 becomes 12.3k, 2500000 becomes 2.5M.
+func compactCount(count int64) string {
+	switch {
+	case count >= 1000000:
+		return fmt.Sprintf("%.1fM", float64(count)/1000000)
+	case count >= 1000:
+		return fmt.Sprintf("%.1fk", float64(count)/1000)
+	default:
+		return fmt.Sprintf("%d", count)
+	}
 }
 
 func percentString(part, total int64) string {

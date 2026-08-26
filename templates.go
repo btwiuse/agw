@@ -20,8 +20,9 @@ var templateFS embed.FS
 var devTemplates atomic.Bool
 
 var templateFuncs = template.FuncMap{
-	"join": strings.Join,
-	"has":  stringSliceContains,
+	"join":    strings.Join,
+	"has":     stringSliceContains,
+	"compact": compactCount,
 }
 
 var templateMu sync.Mutex
