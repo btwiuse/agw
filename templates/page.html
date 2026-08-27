@@ -21,9 +21,9 @@
   <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
-    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --stats-chart-grid: #e0e8e4; --stats-chart-text: #71827e; --stats-chart-ok-rgb: 77,143,121; --stats-chart-err: #c04b45; --stats-chart-err-rgb: 192,75,69; --stats-chart-p50: #d97706; --stats-chart-p95: #db2777; --stats-heat-from: #cfe6dc; --stats-heat-to: #115744; --stats-donut-2xx: #4d8f79; --stats-donut-3xx: #5a86b8; --stats-donut-4xx: #c08a2e; --stats-donut-5xx: #c04b45; --stats-donut-pending: #aab8b3; --stats-tooltip-bg: #fff; --stats-tooltip-border: #c8d4d0; }
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --stats-chart-grid: #e0e8e4; --stats-chart-text: #71827e; --stats-chart-ok-rgb: 77,143,121; --stats-chart-err: #c04b45; --stats-chart-err-rgb: 192,75,69; --stats-chart-p50: #d97706; --stats-chart-p95: #db2777; --stats-chart-token-in: #4d8f79; --stats-chart-token-out: #5a86b8; --stats-heat-from: #cfe6dc; --stats-heat-to: #115744; --stats-donut-2xx: #4d8f79; --stats-donut-3xx: #5a86b8; --stats-donut-4xx: #c08a2e; --stats-donut-5xx: #c04b45; --stats-donut-pending: #aab8b3; --stats-tooltip-bg: #fff; --stats-tooltip-border: #c8d4d0; }
     :root[data-theme="light"] { color-scheme: light; }
-    :root[data-theme="dark"] { --stats-chart-grid: #2b403a; --stats-chart-text: #879e96; --stats-chart-ok-rgb: 121,201,167; --stats-chart-err: #f3aaa6; --stats-chart-err-rgb: 243,170,166; --stats-chart-p50: #fbbf24; --stats-chart-p95: #f472b6; --stats-heat-from: #1e3b32; --stats-heat-to: #79c9a7; --stats-tooltip-bg: #1a2a26; --stats-tooltip-border: #395047; }
+    :root[data-theme="dark"] { --stats-chart-grid: #2b403a; --stats-chart-text: #879e96; --stats-chart-ok-rgb: 121,201,167; --stats-chart-err: #f3aaa6; --stats-chart-err-rgb: 243,170,166; --stats-chart-p50: #fbbf24; --stats-chart-p95: #f472b6; --stats-chart-token-in: #79c9a7; --stats-chart-token-out: #7da7d8; --stats-heat-from: #1e3b32; --stats-heat-to: #79c9a7; --stats-tooltip-bg: #1a2a26; --stats-tooltip-border: #395047; }
     * { box-sizing: border-box; }
     .sr-only { position: absolute; inset: 0; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
     body { margin: 0; color: #1b2927; background: #eef2f0; }
@@ -409,6 +409,22 @@
     .stats-chart-legend .dot.is-err { background: #c04b45; }
     .stats-chart-legend .dot.is-p50 { background: var(--stats-chart-p50); }
     .stats-chart-legend .dot.is-p95 { background: var(--stats-chart-p95); }
+    .stats-chart-legend .dot.is-token-in { background: var(--stats-chart-token-in); }
+    .stats-chart-legend .dot.is-token-out { background: var(--stats-chart-token-out); }
+    .stats-token-dist { padding: 14px; display: grid; gap: 12px; }
+    .stats-token-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .stats-token-summary > span { display: flex; flex-direction: column; gap: 2px; }
+    .stats-token-summary strong { font-size: 18px; color: #213633; font-variant-numeric: tabular-nums; }
+    .stats-token-summary small { color: #82928e; font-size: 11px; }
+    .stats-token-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: #e4ece8; }
+    .stats-token-fill.is-input { background: var(--stats-chart-token-in); }
+    .stats-token-fill.is-output { background: var(--stats-chart-token-out); }
+    .stats-token-legend { display: inline-flex; gap: 16px; color: #82928e; font-size: 11px; align-items: center; }
+    .stats-token-legend .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+    .stats-token-legend .dot.is-token-in { background: var(--stats-chart-token-in); }
+    .stats-token-legend .dot.is-token-out { background: var(--stats-chart-token-out); }
+    :root[data-theme="dark"] .stats-token-summary strong { color: #dce9e4; }
+    :root[data-theme="dark"] .stats-token-bar { background: #22332e; }
     .stats-donut { display: flex; align-items: center; justify-content: center; gap: 40px; padding: 12px 14px 14px; }
     .stats-donut-canvas { position: relative; width: 220px; height: 220px; flex: 0 0 220px; }
     .stats-donut-legend { display: grid; flex: 0 1 340px; width: 100%; max-width: 340px; min-width: 0; gap: 9px; }
@@ -510,7 +526,7 @@
       </div>
       </div>
       <div class="telemetry-panel" id="sessions-panel" role="tabpanel" aria-labelledby="sessions-tab" hidden><div class="session-table-head" role="row"><span></span><span>Session</span><span>Selector</span><span>Upstream</span><span>Model</span><span>State</span><span>Status</span><span>Send</span><span>Receive</span><span>Duration</span><span></span></div><div id="session-list" class="session-list"></div></div>
-      <div class="telemetry-panel" id="stats-panel" role="tabpanel" aria-labelledby="stats-tab" hidden><div id="stats-view" class="stats-view"></div><div id="stats-charts" class="stats-charts" hidden><div class="stats-panel stats-panel-wide"><div class="stats-panel-head"><h3>请求时间分布</h3><span class="stats-panel-head-right"><span class="stats-panel-meta" data-stats-meta></span><a class="stats-export" href="/stats/export" target="_blank" rel="noopener" title="导出当前统计为独立 HTML 快照（可分享 / 归档）"><i data-lucide="download"></i>导出快照</a></span></div><div class="stats-chart-box" id="stats-time-chart"></div><div class="stats-chart-foot"><span class="stats-chart-legend"><i class="dot is-ok"></i>成功<i class="dot is-err"></i>错误<i class="dot is-p50"></i>P50<i class="dot is-p95"></i>P95</span><span class="tab-connection">柱高=请求数 · 右轴=P50/P95 延迟(ms) · 拖动缩放 · 悬停看明细</span></div></div><div class="stats-panel stats-panel-wide"><div class="stats-panel-head"><h3>Activity Heatmap</h3><span class="stats-panel-meta">小时 × 星期 · 颜色越深越活跃</span></div><div class="stats-chart-box" id="stats-heatmap"></div></div><div class="stats-panel stats-panel-wide"><div class="stats-panel-head"><h3>HTTP 状态</h3></div><div class="stats-donut"><div class="stats-donut-canvas" id="stats-status"></div><div class="stats-donut-legend" id="stats-status-legend"></div></div></div><div id="stats-charts-bars"></div></div></div>
+      <div class="telemetry-panel" id="stats-panel" role="tabpanel" aria-labelledby="stats-tab" hidden><div id="stats-view" class="stats-view"></div><div id="stats-charts" class="stats-charts" hidden><div class="stats-panel stats-panel-wide"><div class="stats-panel-head"><h3>请求时间分布</h3><span class="stats-panel-head-right"><span class="stats-panel-meta" data-stats-meta></span><a class="stats-export" href="/stats/export" target="_blank" rel="noopener" title="导出当前统计为独立 HTML 快照（可分享 / 归档）"><i data-lucide="download"></i>导出快照</a></span></div><div class="stats-chart-box" id="stats-time-chart"></div><div class="stats-chart-foot"><span class="stats-chart-legend"><i class="dot is-ok"></i>成功<i class="dot is-err"></i>错误<i class="dot is-p50"></i>P50<i class="dot is-p95"></i>P95</span><span class="tab-connection">柱高=请求数 · 右轴=P50/P95 延迟(ms) · 拖动缩放 · 悬停看明细</span></div></div><div class="stats-panel stats-panel-wide" id="stats-token-panel" hidden><div class="stats-panel-head"><h3>Token 流量</h3><span class="stats-panel-meta">输入 / 输出 · 每桶 Token 用量</span></div><div class="stats-chart-box" id="stats-token-chart"></div><div class="stats-chart-foot"><span class="stats-chart-legend"><i class="dot is-token-in"></i>输入<i class="dot is-token-out"></i>输出</span><span class="tab-connection">线=Token 用量 · 左轴=Tokens · 拖动缩放 · 悬停看明细</span></div></div><div class="stats-panel stats-panel-wide"><div class="stats-panel-head"><h3>Activity Heatmap</h3><span class="stats-panel-meta">小时 × 星期 · 颜色越深越活跃</span></div><div class="stats-chart-box" id="stats-heatmap"></div></div><div class="stats-panel stats-panel-wide"><div class="stats-panel-head"><h3>HTTP 状态</h3></div><div class="stats-donut"><div class="stats-donut-canvas" id="stats-status"></div><div class="stats-donut-legend" id="stats-status-legend"></div></div></div><div id="stats-charts-bars"></div></div></div>
       <div class="telemetry-panel" id="logs-panel" role="tabpanel" aria-labelledby="logs-tab" hidden><div class="log-toolbar"><span class="tab-connection" data-log-connection>SSE connected</span><button class="text-button" type="button" data-log-pretty title="格式化 JSON" aria-label="格式化 JSON" aria-pressed="false"><i data-lucide="braces"></i>pretty</button></div><pre id="log-stream"></pre></div>
     </section>
   </main>
@@ -1347,6 +1363,7 @@
     let statsRenderTimer = null;
     let statsSeriesData = null;
     let timeChart = null, timeHistogram = null, timeErrorLine = null, timeLatP50 = null, timeLatP95 = null;
+    let tokenChart = null, tokenInSeries = null, tokenOutSeries = null;
     let heatmapChart = null, statusChart = null;
     let statsChartsBuilt = false;
     const statsDayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -1382,7 +1399,7 @@
     function statsChartColors() {
       const s = getComputedStyle(document.documentElement);
       const read = name => s.getPropertyValue(name).trim();
-      return { grid: read('--stats-chart-grid'), text: read('--stats-chart-text'), okRgb: read('--stats-chart-ok-rgb'), err: read('--stats-chart-err'), errRgb: read('--stats-chart-err-rgb'), p50: read('--stats-chart-p50'), p95: read('--stats-chart-p95'), heatFrom: read('--stats-heat-from'), heatTo: read('--stats-heat-to'), tooltipBg: read('--stats-tooltip-bg'), tooltipBorder: read('--stats-tooltip-border') };
+      return { grid: read('--stats-chart-grid'), text: read('--stats-chart-text'), okRgb: read('--stats-chart-ok-rgb'), err: read('--stats-chart-err'), errRgb: read('--stats-chart-err-rgb'), p50: read('--stats-chart-p50'), p95: read('--stats-chart-p95'), tokenIn: read('--stats-chart-token-in'), tokenOut: read('--stats-chart-token-out'), heatFrom: read('--stats-heat-from'), heatTo: read('--stats-heat-to'), tooltipBg: read('--stats-tooltip-bg'), tooltipBorder: read('--stats-tooltip-border') };
     }
     function statsHexToRgb(hex) { const n = parseInt(hex.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
     function statsInterpolate(ratio, from, to) {
@@ -1394,9 +1411,13 @@
         if (timeChart.__statsRefit) { timeChart.__statsRefit.disconnect(); timeChart.__statsRefit = null; }
         timeChart.remove(); timeChart = null; timeHistogram = null; timeErrorLine = null; timeLatP50 = null; timeLatP95 = null;
       }
+      if (tokenChart) {
+        if (tokenChart.__statsRefit) { tokenChart.__statsRefit.disconnect(); tokenChart.__statsRefit = null; }
+        tokenChart.remove(); tokenChart = null; tokenInSeries = null; tokenOutSeries = null;
+      }
       if (heatmapChart) { heatmapChart.destroy(); heatmapChart = null; }
       if (statusChart) { statusChart.destroy(); statusChart = null; }
-      ['stats-time-chart', 'stats-heatmap', 'stats-status'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
+      ['stats-time-chart', 'stats-heatmap', 'stats-status', 'stats-token-chart'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
       statsChartsBuilt = false;
     }
     function buildTimeChart() {
@@ -1493,6 +1514,83 @@
       const lastTime = buckets.length ? buckets[buckets.length - 1].t : 0;
       if (!visible || !visible.to || lastTime > visible.to) timeChart.timeScale().fitContent();
       if (statsMeta) statsMeta.textContent = statsSeriesData.meta || '';
+    }
+    // statsTokenCount renders a token count compactly (12.3k / 2.5M) for the
+    // token chart tooltip, mirroring the server-side compactCount formatting.
+    function statsTokenCount(n) {
+      if (typeof n !== 'number' || !isFinite(n)) return '-';
+      if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+      if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+      return String(Math.round(n));
+    }
+    function buildTokenChart() {
+      const container = document.getElementById('stats-token-chart');
+      if (!container || !window.LightweightCharts || !statsSeriesData) return;
+      container.innerHTML = '';
+      const c = statsChartColors();
+      tokenChart = LightweightCharts.createChart(container, {
+        autoSize: true, height: 260,
+        layout: { background: { type: 'solid', color: 'transparent' }, textColor: c.text, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontSize: 11 },
+        grid: { vertLines: { color: c.grid }, horzLines: { color: c.grid } },
+        rightPriceScale: { borderColor: c.grid },
+        leftPriceScale: { visible: true, borderColor: c.grid, scaleMargins: { top: 0.12, bottom: 0.08 } },
+        timeScale: {
+          borderColor: c.grid, rightOffset: 3, timeVisible: true,
+          tickMarkFormatter: function (time, tickMarkType) {
+            if (typeof time !== 'number') return '';
+            const d = new Date(time * 1000);
+            const pad = n => String(n).padStart(2, '0');
+            const midnight = d.getHours() === 0 && d.getMinutes() === 0;
+            const isTime = tickMarkType === LightweightCharts.TickMarkType.Time || tickMarkType === LightweightCharts.TickMarkType.TimeWithSeconds;
+            if (isTime && !midnight) return pad(d.getHours()) + ':' + pad(d.getMinutes());
+            return (d.getMonth() + 1) + '/' + d.getDate();
+          },
+        },
+        localization: {
+          timeFormatter: function (time) { return typeof time === 'number' ? statsTimeLabel(time) : ''; },
+        },
+        crosshair: { horzLine: { color: c.grid, labelBackgroundColor: '#176d59' }, vertLine: { color: c.grid, labelBackgroundColor: '#176d59' } },
+      });
+      tokenInSeries = tokenChart.addLineSeries({ color: c.tokenIn, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerRadius: 2, priceScaleId: 'left', priceFormat: { type: 'custom', minMove: 1, formatter: statsTokenCount } });
+      tokenOutSeries = tokenChart.addLineSeries({ color: c.tokenOut, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerRadius: 2, priceScaleId: 'left', priceFormat: { type: 'custom', minMove: 1, formatter: statsTokenCount } });
+      const tooltip = document.createElement('div');
+      tooltip.className = 'stats-chart-tooltip';
+      container.appendChild(tooltip);
+      tokenChart.subscribeCrosshairMove(function (param) {
+        if (!param.time || param.point === undefined) { tooltip.style.display = 'none'; return; }
+        const inBar = param.seriesData.get(tokenInSeries);
+        const outBar = param.seriesData.get(tokenOutSeries);
+        if (!inBar && !outBar) { tooltip.style.display = 'none'; return; }
+        const parts = [statsTimeLabel(param.time)];
+        if (inBar) parts.push('输入 ' + statsTokenCount(inBar.value));
+        if (outBar) parts.push('输出 ' + statsTokenCount(outBar.value));
+        tooltip.innerHTML = '<strong>' + parts[0] + '</strong>' + parts.slice(1).join(' · ');
+        tooltip.style.left = Math.min(param.point.x + 12, container.clientWidth - 190) + 'px';
+        tooltip.style.top = Math.max(6, param.point.y - 42) + 'px';
+        tooltip.style.display = 'block';
+      });
+      updateTokenChart();
+      if ('ResizeObserver' in window) {
+        const refit = function () { if (tokenChart) tokenChart.timeScale().fitContent(); };
+        const observer = new ResizeObserver(refit);
+        observer.observe(container);
+        tokenChart.__statsRefit = observer;
+      }
+    }
+    function updateTokenChart() {
+      const panel = document.getElementById('stats-token-panel');
+      if (panel) panel.hidden = !(statsSeriesData && statsSeriesData.tokens);
+      if (!tokenChart || !statsSeriesData) return;
+      const c = statsChartColors();
+      const buckets = statsSeriesData.buckets;
+      const tokenBuckets = buckets.filter(b => (b.in || 0) > 0 || (b.out || 0) > 0);
+      tokenInSeries.setData(tokenBuckets.map(b => ({ time: b.t, value: b.in || 0 })));
+      tokenOutSeries.setData(tokenBuckets.map(b => ({ time: b.t, value: b.out || 0 })));
+      tokenInSeries.applyOptions({ color: c.tokenIn });
+      tokenOutSeries.applyOptions({ color: c.tokenOut });
+      const visible = tokenChart.timeScale().getVisibleRange();
+      const lastTime = tokenBuckets.length ? tokenBuckets[tokenBuckets.length - 1].t : 0;
+      if (!visible || !visible.to || lastTime > visible.to) tokenChart.timeScale().fitContent();
     }
     function buildHeatmap() {
       const holder = document.getElementById('stats-heatmap');
@@ -1593,10 +1691,10 @@
     }
     function renderStatsCharts() {
       if (!statsSeriesData || !statsPanelVisible() || !statsChartsBuilt) {
-        if (statsSeriesData && statsPanelVisible() && (window.LightweightCharts || window.Chart)) { buildTimeChart(); buildHeatmap(); buildStatusChart(); }
+        if (statsSeriesData && statsPanelVisible() && (window.LightweightCharts || window.Chart)) { buildTimeChart(); buildTokenChart(); buildHeatmap(); buildStatusChart(); }
         return;
       }
-      updateTimeChart(); updateHeatmap(); updateStatusChart();
+      updateTimeChart(); updateTokenChart(); updateHeatmap(); updateStatusChart();
     }
     function applyStatsHTML(html) {
       if (!statsView) return;

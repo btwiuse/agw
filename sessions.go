@@ -49,6 +49,14 @@ type sessionRequest struct {
 	Model              string
 	OriginalModel      string
 	Events             []sessionEvent
+	// Token accounting extracted from the upstream response while streaming
+	// (see usageScanner); zero for responses without a usage object.
+	TokenInput      int64
+	TokenOutput     int64
+	TokenCacheRead  int64
+	TokenCacheWrite int64
+	TokenTotal      int64
+	HasTokenUsage   bool
 }
 
 type sessionEvent struct {
@@ -81,12 +89,24 @@ type sessionHub struct {
 	// statsFile appends one JSON line per completed request to data/stats.jsonl
 	// so stats survive restarts; nil in non-persistent mode.
 	statsFile *os.File
+	// pricing is the model-prefix rate table used to estimate request cost at
+	// aggregation time; updated on config save, read under mu.
+	pricing []PricingRule
+}
+
+// setPricing replaces the pricing table used for cost estimation. It is safe
+// to call at any time; aggregations snapshot the table under the lock.
+func (h *sessionHub) setPricing(pricing []PricingRule) {
+	h.mu.Lock()
+	h.pricing = append([]PricingRule(nil), pricing...)
+	h.mu.Unlock()
 }
 
 type trackedSession struct {
 	hub       *sessionHub
 	sessionID string
 	sequence  uint64
+	usage     usageScanner
 }
 
 type sessionCard struct {
@@ -344,6 +364,9 @@ func (t *trackedSession) captureResponse(data []byte) {
 	if len(data) == 0 {
 		return
 	}
+	// Token usage is extracted from the same byte stream that reaches the
+	// client, before the payload writer and hub bookkeeping see it.
+	t.usage.feed(data)
 	t.hub.captureResponse(t, data)
 }
 
@@ -371,6 +394,13 @@ func (t *trackedSession) complete(status, bytes int, contextErr error) {
 		default:
 			request.State = "interrupted"
 		}
+		usage := t.usage.tally()
+		request.TokenInput = usage.InputTokens
+		request.TokenOutput = usage.OutputTokens
+		request.TokenCacheRead = usage.CacheReadTokens
+		request.TokenCacheWrite = usage.CacheWriteTokens
+		request.TokenTotal = usage.total()
+		request.HasTokenUsage = usage.Seen
 		if request.ResponsePayload != nil {
 			_ = request.ResponsePayload.Close()
 			request.ResponsePayload = nil

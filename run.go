@@ -120,7 +120,10 @@ func RunWithOptions(opts Options) error {
 			logger.Info("externalized auth values into memory; open the management UI to keep them in the browser", "config", opts.ConfigPath)
 		}
 	}
-	proxy := &Proxy{Upstreams: upstreams, AppSelectors: settings.AppSelectors, Client: client, Logger: logger, Config: FileConfig(opts.ConfigPath), LogHub: hub, Sessions: sessions, AllowDebug: opts.AllowDebug, Debug: settings.Debug && opts.AllowDebug, SecretValues: secretValues}
+	proxy := &Proxy{Upstreams: upstreams, AppSelectors: settings.AppSelectors, Pricing: settings.Pricing, Client: client, Logger: logger, Config: FileConfig(opts.ConfigPath), LogHub: hub, Sessions: sessions, AllowDebug: opts.AllowDebug, Debug: settings.Debug && opts.AllowDebug, SecretValues: secretValues}
+	if sessions != nil {
+		sessions.setPricing(settings.Pricing)
+	}
 
 	if adminUser != "" {
 		logger.Info("management auth enabled", "username", adminUser)

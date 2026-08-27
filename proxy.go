@@ -106,6 +106,16 @@ type Settings struct {
 	Debug        bool          `yaml:"debug" json:"debug"`
 	AppSelectors []AppSelector `yaml:"appSelectors,omitempty" json:"appSelectors,omitempty"`
 	Upstreams    []Upstream    `yaml:"upstreams" json:"upstreams"`
+	Pricing      []PricingRule `yaml:"pricing,omitempty" json:"pricing,omitempty"`
+}
+
+// PricingRule maps a model-name prefix to USD rates per one million tokens.
+// The longest matching prefix wins when a request is priced; rules without a
+// prefix never match. Rates of zero mean that token class is free.
+type PricingRule struct {
+	ModelPrefix string  `yaml:"modelPrefix" json:"modelPrefix"`
+	InputPer1M  float64 `yaml:"inputPer1M" json:"inputPer1M"`
+	OutputPer1M float64 `yaml:"outputPer1M" json:"outputPer1M"`
 }
 
 type Proxy struct {
@@ -120,6 +130,7 @@ type Proxy struct {
 	AllowDebug   bool
 	Debug        bool
 	AppSelectors []AppSelector
+	Pricing      []PricingRule
 	SecretValues map[string]string
 	Mu           sync.RWMutex
 }
@@ -1381,6 +1392,11 @@ func (p *Proxy) updateConfig(w http.ResponseWriter, r *http.Request) {
 	if settings.AppSelectors == nil {
 		settings.AppSelectors = append([]AppSelector(nil), p.AppSelectors...)
 	}
+	if settings.Pricing == nil {
+		// The browser config form does not submit pricing; keep the existing
+		// table so a config save never silently drops the rates.
+		settings.Pricing = append([]PricingRule(nil), p.Pricing...)
+	}
 	existing := make(map[string]string, len(p.SecretValues))
 	for key, value := range p.SecretValues {
 		existing[key] = value
@@ -1406,8 +1422,12 @@ func (p *Proxy) updateConfig(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		p.Upstreams = settings.Upstreams
 		p.AppSelectors = settings.AppSelectors
+		p.Pricing = settings.Pricing
 		p.Debug = settings.Debug
 		p.SecretValues = secretValues
+		if p.Sessions != nil {
+			p.Sessions.setPricing(settings.Pricing)
+		}
 	}
 	p.Mu.Unlock()
 	if err != nil {
@@ -1437,7 +1457,7 @@ func (p *Proxy) updateConfig(w http.ResponseWriter, r *http.Request) {
 // the real secrets happens client-side from the browser's own storage.
 func (p *Proxy) serveConfigYAML(w http.ResponseWriter) {
 	p.Mu.RLock()
-	settings := Settings{Debug: p.Debug, AppSelectors: p.AppSelectors, Upstreams: p.Upstreams}
+	settings := Settings{Debug: p.Debug, AppSelectors: p.AppSelectors, Upstreams: p.Upstreams, Pricing: p.Pricing}
 	p.Mu.RUnlock()
 	data, err := yaml.Marshal(settings)
 	if err != nil {

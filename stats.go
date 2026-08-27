@@ -89,10 +89,24 @@ type statsView struct {
 	TopPaths     []statsPath
 	UpstreamRows []statsUpstreamRow
 	Daily        []statsDailyRow
-	SeriesJSON   string
-	Window       string
-	Windows      []statsWindow
-	Empty        bool
+	ModelRows    []statsModelRow
+	// Token accounting. HasTokens reports that at least one request carried a
+	// parsed usage object; HasCost that a pricing table is configured (cost
+	// columns render only then). Token strings are preformatted for display.
+	HasTokens        bool
+	HasCost          bool
+	TotalTokens      string
+	InputTokens      string
+	OutputTokens     string
+	CacheReadTokens  string
+	CacheWriteTokens string
+	InputPct         string
+	OutputPct        string
+	Cost             string
+	SeriesJSON       string
+	Window           string
+	Windows          []statsWindow
+	Empty            bool
 }
 
 type statsWindow struct {
@@ -112,6 +126,8 @@ type statsBucket struct {
 	AvgMs  float64
 	P50Ms  float64
 	P95Ms  float64
+	InTok  int64
+	OutTok int64
 }
 
 type statsBar struct {
@@ -145,7 +161,331 @@ type statsEntry struct {
 	path      string
 	reqBytes  int64
 	respBytes int64
+	tokens    tokenUsage
+	cost      float64
 	isError   bool
+}
+
+// tokenUsage is the per-request token accounting extracted from upstream
+// responses. The scanner normalizes provider differences into one shape:
+// OpenAI-style prompt/completion totals, Anthropic-style input/output plus
+// cache reads/creations, and Gemini-style promptTokenCount/candidatesTokenCount
+// all land on the same fields. InputTokens always includes cached input tokens
+// when the provider reports them that way (OpenAI), while CacheReadTokens /
+// CacheWriteTokens stay available as supplementary detail (Anthropic).
+type tokenUsage struct {
+	InputTokens      int64
+	OutputTokens     int64
+	CacheReadTokens  int64
+	CacheWriteTokens int64
+	TotalTokens      int64
+	// Seen reports whether any usage object was parsed from the response, even
+	// a zero one; a provider can answer with a valid but empty usage block.
+	Seen bool
+}
+
+// total reports the total token count, falling back to input+output when the
+// provider never sent an explicit total.
+func (u tokenUsage) total() int64 {
+	if u.TotalTokens > 0 {
+		return u.TotalTokens
+	}
+	return u.InputTokens + u.OutputTokens
+}
+
+const (
+	// usageScanBufferCap bounds the scanner's rolling tail buffer. Usage
+	// objects live at the end of responses (final SSE chunk / message_delta),
+	// so keeping the tail is all that matters; older bytes are dropped.
+	usageScanBufferCap = 1 << 18
+	// usageScanMaxObject is the largest single usage object the scanner will
+	// walk. Real usage objects are a handful of fields; the cap only guards
+	// against pathological values making the scan quadratic.
+	usageScanMaxObject = 1 << 16
+)
+
+// usageScanner incrementally watches raw response bytes for provider usage
+// objects (the "usage" key of OpenAI/Anthropic payloads and the
+// "usageMetadata" key of Gemini payloads) so token totals survive streaming,
+// chunk boundaries and protocol differences. It never buffers more than
+// usageScanBufferCap bytes and keeps per-field maxima, which is the correct
+// merge rule across all providers: Anthropic splits input (message_start) and
+// output (message_delta) into separate usage objects, OpenAI repeats a full
+// object only in the final chunk, and Gemini reports one object per response.
+type usageScanner struct {
+	buf     []byte
+	scanPos int
+	usage   tokenUsage
+}
+
+// tally returns the final accumulated usage. Call it after the response body
+// has been fully streamed.
+func (s *usageScanner) tally() tokenUsage {
+	if s == nil {
+		return tokenUsage{}
+	}
+	return s.usage
+}
+
+// feed appends a response chunk and scans it for usage objects. It is safe to
+// call once per streamed Write; the tally is final after the stream ends.
+func (s *usageScanner) feed(data []byte) {
+	if s == nil || len(data) == 0 {
+		return
+	}
+	s.buf = append(s.buf, data...)
+	if len(s.buf) > usageScanBufferCap {
+		drop := len(s.buf) - usageScanBufferCap
+		s.buf = s.buf[drop:]
+		if s.scanPos < drop {
+			s.scanPos = 0
+		} else {
+			s.scanPos -= drop
+		}
+	}
+	s.scan()
+}
+
+// scan walks the buffer from the last scan position, parsing every complete
+// usage object it can reach. An object that is still incomplete (split across
+// chunks) leaves the scan position at its key so the next feed retries it.
+func (s *usageScanner) scan() {
+	for {
+		idx := s.findUsageKey(s.scanPos)
+		if idx < 0 {
+			// Keep the tail unscanned so a key split across chunk boundaries
+			// ("usageMetada" + "ta") is found once the next chunk arrives.
+			tail := len(s.buf) - 14
+			if tail > s.scanPos {
+				s.scanPos = tail
+			} else {
+				s.scanPos = len(s.buf)
+			}
+			return
+		}
+		valueStart, ok := s.valueAfterKey(idx)
+		if !ok || valueStart >= len(s.buf) {
+			// Incomplete object; retry when more bytes arrive.
+			s.scanPos = idx
+			return
+		}
+		if s.buf[valueStart] != '{' {
+			// "usage": null or a non-object value; skip past the key.
+			s.scanPos = valueStart + 1
+			continue
+		}
+		end, complete := s.balancedObject(valueStart)
+		if !complete {
+			s.scanPos = idx
+			return
+		}
+		var parsed usagePayload
+		if json.Unmarshal(s.buf[valueStart:end+1], &parsed) == nil {
+			s.usage.merge(parsed)
+		}
+		s.scanPos = end + 1
+	}
+}
+
+// findUsageKey locates the next "usage" or "usageMetadata" JSON key starting
+// from pos, returning its index or -1. The shorter literal cannot collide with
+// the longer one: "usageMetadata" has no closing quote after "usage".
+func (s *usageScanner) findUsageKey(pos int) int {
+	buf := s.buf
+	for i := pos; i+7 <= len(buf); i++ {
+		if buf[i] != '"' {
+			continue
+		}
+		// A backslash before the quote means the key is escaped inside a
+		// string value (e.g. assistant text quoting a usage object); skip it.
+		if i > 0 && buf[i-1] == '\\' {
+			continue
+		}
+		if string(buf[i:i+7]) == `"usage"` {
+			return i
+		}
+		if i+15 <= len(buf) && string(buf[i:i+15]) == `"usageMetadata"` {
+			return i
+		}
+	}
+	return -1
+}
+
+// valueAfterKey returns the index just past ":" following a usage key, or ok
+// false when the value is still pending.
+func (s *usageScanner) valueAfterKey(keyStart int) (int, bool) {
+	i := keyStart
+	for i < len(s.buf) && s.buf[i] != ':' {
+		i++
+	}
+	if i >= len(s.buf) {
+		return 0, false
+	}
+	i++
+	for i < len(s.buf) && (s.buf[i] == ' ' || s.buf[i] == '\t' || s.buf[i] == '\n' || s.buf[i] == '\r') {
+		i++
+	}
+	if i >= len(s.buf) {
+		return 0, false
+	}
+	return i, true
+}
+
+// balancedObject returns the index of the closing brace of the JSON object
+// starting at start, or complete=false when the buffer ends first. Strings and
+// escapes inside the object are respected so "}" in a value never confuses the
+// walker.
+func (s *usageScanner) balancedObject(start int) (int, bool) {
+	depth := 0
+	inString := false
+	escaped := false
+	for i := start; i < len(s.buf); i++ {
+		if i-start > usageScanMaxObject {
+			return 0, false
+		}
+		c := s.buf[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if c == '\\' {
+				escaped = true
+				continue
+			}
+			if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// usagePayload is the union of provider usage objects; pointer fields let the
+// merger distinguish "absent" from "zero".
+type usagePayload struct {
+	PromptTokens         *int64 `json:"prompt_tokens"`
+	CompletionTokens     *int64 `json:"completion_tokens"`
+	TotalTokens          *int64 `json:"total_tokens"`
+	InputTokens          *int64 `json:"input_tokens"`
+	OutputTokens         *int64 `json:"output_tokens"`
+	CacheReadTokens      *int64 `json:"cache_read_input_tokens"`
+	CacheCreationTokens  *int64 `json:"cache_creation_input_tokens"`
+	PromptCacheHit       *int64 `json:"prompt_cache_hit_tokens"`
+	PromptTokenCount     *int64 `json:"promptTokenCount"`
+	CandidatesTokenCount *int64 `json:"candidatesTokenCount"`
+	TotalTokenCount      *int64 `json:"totalTokenCount"`
+	PromptTokensDetails  *struct {
+		CachedTokens *int64 `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+}
+
+// merge folds one parsed usage object into the tally. Every field is merged
+// with per-field maxima; Anthropic's split input/output objects and OpenAI's
+// repeated final-chunk object are both handled by that rule.
+func (u *tokenUsage) merge(parsed usagePayload) {
+	u.Seen = true
+	if parsed.PromptTokens != nil {
+		u.InputTokens = max64(u.InputTokens, *parsed.PromptTokens)
+	}
+	if parsed.InputTokens != nil {
+		u.InputTokens = max64(u.InputTokens, *parsed.InputTokens)
+	}
+	if parsed.PromptTokenCount != nil {
+		u.InputTokens = max64(u.InputTokens, *parsed.PromptTokenCount)
+	}
+	if parsed.CompletionTokens != nil {
+		u.OutputTokens = max64(u.OutputTokens, *parsed.CompletionTokens)
+	}
+	if parsed.OutputTokens != nil {
+		u.OutputTokens = max64(u.OutputTokens, *parsed.OutputTokens)
+	}
+	if parsed.CandidatesTokenCount != nil {
+		u.OutputTokens = max64(u.OutputTokens, *parsed.CandidatesTokenCount)
+	}
+	if parsed.TotalTokens != nil {
+		u.TotalTokens = max64(u.TotalTokens, *parsed.TotalTokens)
+	}
+	if parsed.TotalTokenCount != nil {
+		u.TotalTokens = max64(u.TotalTokens, *parsed.TotalTokenCount)
+	}
+	if parsed.CacheReadTokens != nil {
+		u.CacheReadTokens = max64(u.CacheReadTokens, *parsed.CacheReadTokens)
+	}
+	if parsed.CacheCreationTokens != nil {
+		u.CacheWriteTokens = max64(u.CacheWriteTokens, *parsed.CacheCreationTokens)
+	}
+	if parsed.PromptCacheHit != nil {
+		u.CacheReadTokens = max64(u.CacheReadTokens, *parsed.PromptCacheHit)
+	}
+	if parsed.PromptTokensDetails != nil && parsed.PromptTokensDetails.CachedTokens != nil {
+		u.CacheReadTokens = max64(u.CacheReadTokens, *parsed.PromptTokensDetails.CachedTokens)
+	}
+}
+
+func max64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// pricingCost estimates the USD cost of one request from the pricing table:
+// the longest matching model-prefix rule wins, and requests whose model has no
+// rule (or that carried no usage object) cost nothing.
+func pricingCost(pricing []PricingRule, model string, usage tokenUsage) float64 {
+	if !usage.Seen || len(pricing) == 0 || model == "" {
+		return 0
+	}
+	best := -1
+	bestLen := 0
+	for i, rule := range pricing {
+		if rule.ModelPrefix == "" || len(rule.ModelPrefix) <= bestLen {
+			continue
+		}
+		if strings.HasPrefix(model, rule.ModelPrefix) {
+			best = i
+			bestLen = len(rule.ModelPrefix)
+		}
+	}
+	if best < 0 {
+		return 0
+	}
+	rule := pricing[best]
+	return float64(usage.InputTokens)/1_000_000*rule.InputPer1M + float64(usage.OutputTokens)/1_000_000*rule.OutputPer1M
+}
+
+// formatCost renders a dollar amount like the reference dashboard's compact
+// money formatting: cents for small sums, then k/M abbreviations.
+func formatCost(cost float64) string {
+	if cost == 0 {
+		return "$0.00"
+	}
+	if cost >= 1_000_000 {
+		return fmt.Sprintf("$%.1fM", cost/1_000_000)
+	}
+	if cost >= 1000 {
+		return fmt.Sprintf("$%.1fk", cost/1000)
+	}
+	if cost >= 100 {
+		return fmt.Sprintf("$%.0f", cost)
+	}
+	if cost >= 1 {
+		return fmt.Sprintf("$%.2f", cost)
+	}
+	return fmt.Sprintf("$%.4f", cost)
 }
 
 func errorState(state string) bool {
@@ -172,18 +512,23 @@ func isFinalState(state string) bool {
 // to data/stats.jsonl when a request completes. Field names follow the
 // session journal files so both logs stay readable side by side.
 type statsRecord struct {
-	SessionID     string    `json:"SessionID"`
-	StartedAt     time.Time `json:"StartedAt"`
-	CompletedAt   time.Time `json:"CompletedAt"`
-	Status        int       `json:"Status"`
-	State         string    `json:"State"`
-	Upstream      string    `json:"Upstream,omitempty"`
-	AppSelector   string    `json:"AppSelector,omitempty"`
-	Model         string    `json:"Model,omitempty"`
-	Method        string    `json:"Method,omitempty"`
-	Path          string    `json:"Path,omitempty"`
-	RequestBytes  int64     `json:"RequestBytes,omitempty"`
-	ResponseBytes int64     `json:"ResponseBytes,omitempty"`
+	SessionID       string    `json:"SessionID"`
+	StartedAt       time.Time `json:"StartedAt"`
+	CompletedAt     time.Time `json:"CompletedAt"`
+	Status          int       `json:"Status"`
+	State           string    `json:"State"`
+	Upstream        string    `json:"Upstream,omitempty"`
+	AppSelector     string    `json:"AppSelector,omitempty"`
+	Model           string    `json:"Model,omitempty"`
+	Method          string    `json:"Method,omitempty"`
+	Path            string    `json:"Path,omitempty"`
+	RequestBytes    int64     `json:"RequestBytes,omitempty"`
+	ResponseBytes   int64     `json:"ResponseBytes,omitempty"`
+	TokenInput      int64     `json:"TokenInput,omitempty"`
+	TokenOutput     int64     `json:"TokenOutput,omitempty"`
+	TokenCacheRead  int64     `json:"TokenCacheRead,omitempty"`
+	TokenCacheWrite int64     `json:"TokenCacheWrite,omitempty"`
+	TokenTotal      int64     `json:"TokenTotal,omitempty"`
 }
 
 func statsRecordFromRequest(sessionID string, request *sessionRequest) statsRecord {
@@ -192,6 +537,9 @@ func statsRecordFromRequest(sessionID string, request *sessionRequest) statsReco
 		Status: request.Status, State: request.State, Upstream: request.Upstream,
 		AppSelector: request.AppSelector, Model: request.Model, Method: request.Method,
 		Path: request.Path, RequestBytes: request.RequestBytes, ResponseBytes: request.ResponseBytes,
+		TokenInput: request.TokenInput, TokenOutput: request.TokenOutput,
+		TokenCacheRead: request.TokenCacheRead, TokenCacheWrite: request.TokenCacheWrite,
+		TokenTotal: request.TokenTotal,
 	}
 }
 
@@ -201,6 +549,11 @@ func (r statsRecord) entry() *statsEntry {
 		status: r.Status, state: r.State, upstream: r.Upstream, selector: r.AppSelector,
 		model: r.Model, method: r.Method, path: r.Path,
 		reqBytes: r.RequestBytes, respBytes: r.ResponseBytes,
+		tokens: tokenUsage{
+			InputTokens: r.TokenInput, OutputTokens: r.TokenOutput,
+			CacheReadTokens: r.TokenCacheRead, CacheWriteTokens: r.TokenCacheWrite,
+			TotalTokens: r.TokenTotal, Seen: r.TokenTotal > 0 || r.TokenInput > 0 || r.TokenOutput > 0,
+		},
 		isError: r.Status >= 400 || errorState(r.State),
 	}
 }
@@ -297,6 +650,11 @@ func updateStatsEntry(entry *statsEntry, request *sessionRequest) {
 	entry.path = request.Path
 	entry.reqBytes = request.RequestBytes
 	entry.respBytes = request.ResponseBytes
+	entry.tokens = tokenUsage{
+		InputTokens: request.TokenInput, OutputTokens: request.TokenOutput,
+		CacheReadTokens: request.TokenCacheRead, CacheWriteTokens: request.TokenCacheWrite,
+		TotalTokens: request.TokenTotal, Seen: request.HasTokenUsage,
+	}
 	entry.isError = request.Status >= 400 || errorState(request.State)
 }
 
@@ -317,23 +675,39 @@ func (h *sessionHub) stats(window string) statsView {
 			sessions[entry.sessionID] = struct{}{}
 		}
 	}
+	pricing := append([]PricingRule(nil), h.pricing...)
 	h.mu.Unlock()
 
-	view := statsView{Sessions: int64(len(sessions)), Empty: len(entries) == 0, Window: window, Windows: windowOptions(window)}
+	view := statsView{Sessions: int64(len(sessions)), Empty: len(entries) == 0, Window: window, Windows: windowOptions(window), HasCost: len(pricing) > 0}
 	if len(entries) == 0 {
 		return view
 	}
 
-	// Totals, traffic and latency.
+	// Totals, traffic, latency, tokens and cost. Cost is estimated here from
+	// the current pricing table (per entry, at render time) so later pricing
+	// edits apply retroactively to the whole history.
 	var totalReqBytes, totalRespBytes int64
+	var totalTokens, totalInput, totalOutput, totalCacheRead, totalCacheWrite, tokenRequests int64
+	var totalCost float64
 	durations := make([]time.Duration, 0, len(entries))
-	for _, entry := range entries {
+	for i := range entries {
+		entry := &entries[i]
 		view.Requests++
 		if entry.isError {
 			view.Errors++
 		}
 		totalReqBytes += entry.reqBytes
 		totalRespBytes += entry.respBytes
+		if entry.tokens.Seen {
+			tokenRequests++
+			totalTokens += entry.tokens.total()
+			totalInput += entry.tokens.InputTokens
+			totalOutput += entry.tokens.OutputTokens
+			totalCacheRead += entry.tokens.CacheReadTokens
+			totalCacheWrite += entry.tokens.CacheWriteTokens
+		}
+		entry.cost = pricingCost(pricing, entry.model, entry.tokens)
+		totalCost += entry.cost
 		if !entry.completed.IsZero() && entry.completed.After(entry.started) {
 			durations = append(durations, entry.completed.Sub(entry.started))
 		}
@@ -355,6 +729,20 @@ func (h *sessionHub) stats(window string) statsView {
 		view.P95Duration = formatDuration(durations[index])
 		view.MaxDuration = formatDuration(durations[len(durations)-1])
 	}
+	if view.HasCost {
+		view.Cost = formatCost(totalCost)
+	}
+	if tokenRequests > 0 {
+		view.HasTokens = true
+		view.TotalTokens = compactCount(totalTokens)
+		view.InputTokens = compactCount(totalInput)
+		view.OutputTokens = compactCount(totalOutput)
+		view.CacheReadTokens = compactCount(totalCacheRead)
+		view.CacheWriteTokens = compactCount(totalCacheWrite)
+		inOut := totalInput + totalOutput
+		view.InputPct = percentString(totalInput, inOut)
+		view.OutputPct = percentString(totalOutput, inOut)
+	}
 
 	view.Buckets, view.SpanLabel, view.BucketLabel = bucketSeries(entries)
 	for _, bucket := range view.Buckets {
@@ -371,6 +759,7 @@ func (h *sessionHub) stats(window string) statsView {
 	view.TopPaths = topPaths(entries)
 	view.UpstreamRows = upstreamRows(entries)
 	view.Daily = dailyRows(entries)
+	view.ModelRows = modelRows(entries)
 	view.SeriesJSON = buildSeriesJSON(entries, view.Buckets, view.Statuses, fmt.Sprintf("%s · 每%s聚合 · 峰值 %d 请求", view.SpanLabel, view.BucketLabel, view.MaxBucket))
 	return view
 }
@@ -417,6 +806,10 @@ func bucketSeries(entries []statsEntry) ([]statsBucket, string, string) {
 		buckets[index].Count++
 		if entry.isError {
 			buckets[index].Errors++
+		}
+		if entry.tokens.Seen {
+			buckets[index].InTok += entry.tokens.InputTokens
+			buckets[index].OutTok += entry.tokens.OutputTokens
 		}
 		if !entry.completed.IsZero() && entry.completed.After(entry.started) {
 			bucketDurations[index] = append(bucketDurations[index], entry.completed.Sub(entry.started))
@@ -595,14 +988,16 @@ type statsUpstreamRow struct {
 	InBytes   string
 	OutBytes  string
 	Avg       string
+	Cost      string
 }
 
 // upstreamRows aggregates requests per upstream into a compact comparison
-// table (volume, error rate, traffic, average latency).
+// table (volume, error rate, traffic, average latency, estimated cost).
 func upstreamRows(entries []statsEntry) []statsUpstreamRow {
 	type agg struct {
 		requests, errors, inBytes, outBytes int64
 		durations                           []time.Duration
+		cost                                float64
 	}
 	groups := make(map[string]*agg)
 	for _, entry := range entries {
@@ -621,6 +1016,7 @@ func upstreamRows(entries []statsEntry) []statsUpstreamRow {
 		}
 		group.inBytes += entry.reqBytes
 		group.outBytes += entry.respBytes
+		group.cost += entry.cost
 		if !entry.completed.IsZero() && entry.completed.After(entry.started) {
 			group.durations = append(group.durations, entry.completed.Sub(entry.started))
 		}
@@ -634,6 +1030,7 @@ func upstreamRows(entries []statsEntry) []statsUpstreamRow {
 			ErrorRate: percentString(group.errors, group.requests),
 			InBytes:   formatBytes64(group.inBytes),
 			OutBytes:  formatBytes64(group.outBytes),
+			Cost:      formatCost(group.cost),
 		}
 		if len(group.durations) > 0 {
 			var sum time.Duration
@@ -729,6 +1126,7 @@ type statsSeries struct {
 	Buckets  []statsSeriesBucket `json:"buckets"`
 	Heatmap  []statsHeatCell     `json:"heatmap"`
 	Statuses []statsSeriesStatus `json:"statuses"`
+	Tokens   bool                `json:"tokens"`
 	Meta     string              `json:"meta"`
 }
 
@@ -739,6 +1137,8 @@ type statsSeriesBucket struct {
 	AvgMs  float64 `json:"avg,omitempty"`
 	P50Ms  float64 `json:"p50,omitempty"`
 	P95Ms  float64 `json:"p95,omitempty"`
+	InTok  int64   `json:"in,omitempty"`
+	OutTok int64   `json:"out,omitempty"`
 }
 
 type statsSeriesStatus struct {
@@ -762,7 +1162,10 @@ func buildSeriesJSON(entries []statsEntry, buckets []statsBucket, statuses []sta
 		Meta:     meta,
 	}
 	for _, bucket := range buckets {
-		series.Buckets = append(series.Buckets, statsSeriesBucket{Time: bucket.Unix, Count: bucket.Count, Errors: bucket.Errors, AvgMs: bucket.AvgMs, P50Ms: bucket.P50Ms, P95Ms: bucket.P95Ms})
+		if bucket.InTok > 0 || bucket.OutTok > 0 {
+			series.Tokens = true
+		}
+		series.Buckets = append(series.Buckets, statsSeriesBucket{Time: bucket.Unix, Count: bucket.Count, Errors: bucket.Errors, AvgMs: bucket.AvgMs, P50Ms: bucket.P50Ms, P95Ms: bucket.P95Ms, InTok: bucket.InTok, OutTok: bucket.OutTok})
 	}
 	for _, status := range statuses {
 		series.Statuses = append(series.Statuses, statsSeriesStatus{Name: status.Name, Count: status.Count})
@@ -808,6 +1211,7 @@ type statsDailyRow struct {
 	InBytes  string
 	OutBytes string
 	Avg      string
+	Cost     string
 }
 
 // dailyRows groups requests by local calendar day and keeps the most recent
@@ -816,6 +1220,7 @@ func dailyRows(entries []statsEntry) []statsDailyRow {
 	type dayAgg struct {
 		requests, errors, inBytes, outBytes int64
 		durations                           []time.Duration
+		cost                                float64
 	}
 	days := make(map[string]*dayAgg)
 	for _, entry := range entries {
@@ -834,6 +1239,7 @@ func dailyRows(entries []statsEntry) []statsDailyRow {
 		}
 		agg.inBytes += entry.reqBytes
 		agg.outBytes += entry.respBytes
+		agg.cost += entry.cost
 		if !entry.completed.IsZero() && entry.completed.After(entry.started) {
 			agg.durations = append(agg.durations, entry.completed.Sub(entry.started))
 		}
@@ -857,7 +1263,96 @@ func dailyRows(entries []statsEntry) []statsDailyRow {
 			}
 			avg = formatDuration(time.Duration(int64(sum) / int64(len(agg.durations))))
 		}
-		rows = append(rows, statsDailyRow{Date: day, Requests: agg.requests, Errors: agg.errors, InBytes: formatBytes64(agg.inBytes), OutBytes: formatBytes64(agg.outBytes), Avg: avg})
+		rows = append(rows, statsDailyRow{Date: day, Requests: agg.requests, Errors: agg.errors, InBytes: formatBytes64(agg.inBytes), OutBytes: formatBytes64(agg.outBytes), Avg: avg, Cost: formatCost(agg.cost)})
+	}
+	return rows
+}
+
+// statsModelRow is one row of the per-model token usage table: request volume
+// plus the prompt/completion token split and estimated cost.
+type statsModelRow struct {
+	Name         string
+	Requests     int64
+	InputTokens  string
+	OutputTokens string
+	TotalTokens  string
+	Cost         string
+}
+
+// modelRows aggregates token usage per model, keeps the top statsTopN by total
+// tokens and folds the rest into one "其他" row so the table stays readable.
+func modelRows(entries []statsEntry) []statsModelRow {
+	type modelAgg struct {
+		requests, input, output int64
+		cost                    float64
+	}
+	groups := make(map[string]*modelAgg)
+	for _, entry := range entries {
+		name := entry.model
+		if name == "" {
+			name = "未知模型"
+		}
+		group := groups[name]
+		if group == nil {
+			group = &modelAgg{}
+			groups[name] = group
+		}
+		group.requests++
+		group.input += entry.tokens.InputTokens
+		group.output += entry.tokens.OutputTokens
+		group.cost += entry.cost
+	}
+	names := make([]string, 0, len(groups))
+	for name := range groups {
+		if groups[name].input+groups[name].output > 0 {
+			names = append(names, name)
+		}
+	}
+	sort.Slice(names, func(i, j int) bool {
+		left := groups[names[i]].input + groups[names[i]].output
+		right := groups[names[j]].input + groups[names[j]].output
+		if left != right {
+			return left > right
+		}
+		return names[i] < names[j]
+	})
+	if len(names) > statsTopN {
+		names = names[:statsTopN]
+	}
+	kept := make(map[string]bool, len(names))
+	for _, name := range names {
+		kept[name] = true
+	}
+	var other modelAgg
+	for name, group := range groups {
+		if !kept[name] {
+			other.requests += group.requests
+			other.input += group.input
+			other.output += group.output
+			other.cost += group.cost
+		}
+	}
+	rows := make([]statsModelRow, 0, len(names)+1)
+	for _, name := range names {
+		group := groups[name]
+		rows = append(rows, statsModelRow{
+			Name:         name,
+			Requests:     group.requests,
+			InputTokens:  compactCount(group.input),
+			OutputTokens: compactCount(group.output),
+			TotalTokens:  compactCount(group.input + group.output),
+			Cost:         formatCost(group.cost),
+		})
+	}
+	if other.input+other.output > 0 {
+		rows = append(rows, statsModelRow{
+			Name:         "其他",
+			Requests:     other.requests,
+			InputTokens:  compactCount(other.input),
+			OutputTokens: compactCount(other.output),
+			TotalTokens:  compactCount(other.input + other.output),
+			Cost:         formatCost(other.cost),
+		})
 	}
 	return rows
 }

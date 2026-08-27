@@ -2166,11 +2166,12 @@ func TestStatsAggregation(t *testing.T) {
 	base := time.Date(2026, 8, 10, 12, 0, 0, 0, time.Local).Truncate(time.Second)
 	hub.mu.Lock()
 	hub.history = []*statsEntry{
-		{sessionID: "s1", started: base, completed: base.Add(2 * time.Second), status: 200, state: "completed", reqBytes: 50, respBytes: 100, model: "gpt-5", upstream: "openai", selector: "codex", method: "POST", path: "/responses"},
-		{sessionID: "s1", started: base.Add(time.Minute), completed: base.Add(time.Minute + 4*time.Second), status: 502, state: "completed", reqBytes: 50, respBytes: 40, model: "gpt-5", upstream: "openai", selector: "codex", method: "POST", path: "/responses", isError: true},
+		{sessionID: "s1", started: base, completed: base.Add(2 * time.Second), status: 200, state: "completed", reqBytes: 50, respBytes: 100, model: "gpt-5", upstream: "openai", selector: "codex", method: "POST", path: "/responses", tokens: tokenUsage{InputTokens: 1500, OutputTokens: 800, TotalTokens: 2300, Seen: true}},
+		{sessionID: "s1", started: base.Add(time.Minute), completed: base.Add(time.Minute + 4*time.Second), status: 502, state: "completed", reqBytes: 50, respBytes: 40, model: "gpt-5", upstream: "openai", selector: "codex", method: "POST", path: "/responses", isError: true, tokens: tokenUsage{InputTokens: 200, TotalTokens: 200, Seen: true}},
 		{sessionID: "s2", started: base.Add(2 * time.Minute), completed: base.Add(2*time.Minute + 500*time.Millisecond), status: 200, state: "completed", respBytes: 30, upstream: "openai", method: "GET", path: "/healthz"},
 	}
 	hub.mu.Unlock()
+	hub.setPricing([]PricingRule{{ModelPrefix: "gpt-5", InputPer1M: 3, OutputPer1M: 15}})
 
 	view := hub.stats("all")
 	if view.Requests != 3 || view.Sessions != 2 || view.Errors != 1 {
@@ -2209,8 +2210,26 @@ func TestStatsAggregation(t *testing.T) {
 	if len(view.TopPaths) != 2 || view.TopPaths[0].Path != "/responses" || view.TopPaths[0].Count != 2 {
 		t.Fatalf("top paths = %#v", view.TopPaths)
 	}
-	if len(view.UpstreamRows) != 1 || view.UpstreamRows[0].Name != "openai" || view.UpstreamRows[0].Requests != 3 || view.UpstreamRows[0].Errors != 1 || view.UpstreamRows[0].ErrorRate != "33%" || view.UpstreamRows[0].InBytes != "100 B" || view.UpstreamRows[0].OutBytes != "170 B" || view.UpstreamRows[0].Avg != "2.167s" {
+	if len(view.UpstreamRows) != 1 || view.UpstreamRows[0].Name != "openai" || view.UpstreamRows[0].Requests != 3 || view.UpstreamRows[0].Errors != 1 || view.UpstreamRows[0].ErrorRate != "33%" || view.UpstreamRows[0].InBytes != "100 B" || view.UpstreamRows[0].OutBytes != "170 B" || view.UpstreamRows[0].Avg != "2.167s" || view.UpstreamRows[0].Cost != "$0.0171" {
 		t.Fatalf("upstream rows = %#v", view.UpstreamRows)
+	}
+	// Token accounting: 1500+200 input, 800 output, 2500 total across the two
+	// requests that carried a usage object; cost estimated from the pricing
+	// table (1500/1e6*3 + 800/1e6*15 + 200/1e6*3 = 0.0171).
+	if !view.HasTokens || view.HasCost != true {
+		t.Fatalf("token/cost flags = tokens:%v cost:%v", view.HasTokens, view.HasCost)
+	}
+	if view.TotalTokens != "2.5k" || view.InputTokens != "1.7k" || view.OutputTokens != "800" || view.InputPct != "68%" || view.OutputPct != "32%" || view.Cost != "$0.0171" {
+		t.Fatalf("token/cost view = total:%q in:%q out:%q inPct:%q outPct:%q cost:%q", view.TotalTokens, view.InputTokens, view.OutputTokens, view.InputPct, view.OutputPct, view.Cost)
+	}
+	if len(view.ModelRows) != 1 || view.ModelRows[0].Name != "gpt-5" || view.ModelRows[0].Requests != 2 || view.ModelRows[0].InputTokens != "1.7k" || view.ModelRows[0].OutputTokens != "800" || view.ModelRows[0].TotalTokens != "2.5k" || view.ModelRows[0].Cost != "$0.0171" {
+		t.Fatalf("model rows = %#v", view.ModelRows)
+	}
+	if len(view.Daily) != 1 || view.Daily[0].Cost != "$0.0171" {
+		t.Fatalf("daily rows cost = %#v", view.Daily)
+	}
+	if !strings.Contains(view.SeriesJSON, `"tokens":true`) || !strings.Contains(view.SeriesJSON, `"in":1500`) || !strings.Contains(view.SeriesJSON, `"out":800`) {
+		t.Fatalf("series JSON missing token data: %s", view.SeriesJSON)
 	}
 	if len(view.Daily) != 1 || view.Daily[0].Date != "2026-08-10" || view.Daily[0].Requests != 3 || view.Daily[0].Errors != 1 {
 		t.Fatalf("daily rows = %#v", view.Daily)
@@ -2363,7 +2382,7 @@ func TestStatsExportRendersStandaloneHTML(t *testing.T) {
 	now := time.Now()
 	hub.mu.Lock()
 	hub.history = []*statsEntry{
-		{sessionID: "s1", started: now, completed: now.Add(time.Second), status: 200, state: "completed", reqBytes: 10, respBytes: 20, model: "gpt-5", upstream: "openai", method: "POST", path: "/responses"},
+		{sessionID: "s1", started: now, completed: now.Add(time.Second), status: 200, state: "completed", reqBytes: 10, respBytes: 20, model: "gpt-5", upstream: "openai", method: "POST", path: "/responses", tokens: tokenUsage{InputTokens: 1500, OutputTokens: 800, TotalTokens: 2300, Seen: true}},
 	}
 	hub.mu.Unlock()
 
@@ -2377,7 +2396,7 @@ func TestStatsExportRendersStandaloneHTML(t *testing.T) {
 		t.Fatalf("export Content-Disposition = %q", disposition)
 	}
 	content := recorder.Body.String()
-	for _, expected := range []string{"<!doctype html>", "STATS_WINDOWS", "// ==== stats charts start ====", "theme-toggle", "请求时间分布", "stats-time-chart", `"1h"`, `"24h"`, `"7d"`, `"30d"`, `"all"`, `data-stats-window=\"all\"`, `data-stats-window-button=\"24h\"`, "buckets", "heatmap", "statuses", "Upstream 汇总"} {
+	for _, expected := range []string{"<!doctype html>", "STATS_WINDOWS", "// ==== stats charts start ====", "theme-toggle", "请求时间分布", "stats-time-chart", "stats-token-chart", `"1h"`, `"24h"`, `"7d"`, `"30d"`, `"all"`, `data-stats-window=\"all\"`, `data-stats-window-button=\"24h\"`, "buckets", "heatmap", "statuses", "Upstream 汇总", "Token 用量", "模型 Token 用量", `\u0026#34;tokens\u0026#34;:true`} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("export missing %q", expected)
 		}
@@ -2572,5 +2591,212 @@ func TestSessionRouteShowsTrackedProxyRequest(t *testing.T) {
 	proxy.ServeHTTP(responsePayload, httptest.NewRequest(http.MethodGet, "/sessions/"+cards[0].ID+"/response", nil))
 	if responsePayload.Code != http.StatusOK || responsePayload.Body.String() != "accepted" {
 		t.Fatalf("response payload response = %d %q", responsePayload.Code, responsePayload.Body.String())
+	}
+}
+
+func TestUsageScanner(t *testing.T) {
+	tests := []struct {
+		name      string
+		chunks    []string
+		input     int64
+		output    int64
+		total     int64
+		cacheRead int64
+		cacheWr   int64
+		seen      bool
+	}{
+		{
+			name:   "openai non-streaming json",
+			chunks: []string{`{"id":"x","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`},
+			input:  10, output: 5, total: 15, seen: true,
+		},
+		{
+			name:   "openai streaming final chunk",
+			chunks: []string{"data: {\"id\":\"x\",\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":8,\"total_tokens\":28}}\n\n"},
+			input:  20, output: 8, total: 28, seen: true,
+		},
+		{
+			name:   "anthropic split usage objects",
+			chunks: []string{"data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":100,\"cache_creation_input_tokens\":50,\"cache_read_input_tokens\":30}}}\n\n", "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":60}}\n\n"},
+			input:  100, output: 60, cacheRead: 30, cacheWr: 50, seen: true, total: 0,
+		},
+		{
+			name:   "gemini usageMetadata",
+			chunks: []string{`{"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":3,"totalTokenCount":10}}`},
+			input:  7, output: 3, total: 10, seen: true,
+		},
+		{
+			name:   "object split across chunk boundary",
+			chunks: []string{`{"id":"x","usage":{"prompt_tok`, `ens":42,"completion_tokens":9,"total_tokens":51}}`},
+			input:  42, output: 9, total: 51, seen: true,
+		},
+		{
+			name:   "key split across chunk boundary",
+			chunks: []string{`{"id":"x","usag`, `e":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}`},
+			input:  3, output: 1, total: 4, seen: true,
+		},
+		{
+			name:   "openai cached token details",
+			chunks: []string{`{"usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110,"prompt_tokens_details":{"cached_tokens":40}}}`},
+			input:  100, output: 10, total: 110, cacheRead: 40, seen: true,
+		},
+		{
+			name:   "deepseek cache hit fields",
+			chunks: []string{`{"usage":{"prompt_tokens":60,"completion_tokens":20,"total_tokens":80,"prompt_cache_hit_tokens":45}}`},
+			input:  60, output: 20, total: 80, cacheRead: 45, seen: true,
+		},
+		{
+			name:   "zero usage is still seen",
+			chunks: []string{`{"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}`},
+			seen:   true,
+		},
+		{
+			name:   "null usage ignored",
+			chunks: []string{`{"usage":null}`},
+		},
+		{
+			name:   "escaped usage key inside string ignored",
+			chunks: []string{`{"content":"{\"usage\":{\"prompt_tokens\":999}}"}`},
+		},
+		{
+			name:   "usage word without colon ignored",
+			chunks: []string{`{"content":"please show usage and continue"}`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var scanner usageScanner
+			for _, chunk := range tt.chunks {
+				scanner.feed([]byte(chunk))
+			}
+			got := scanner.tally()
+			if got.InputTokens != tt.input || got.OutputTokens != tt.output || got.CacheReadTokens != tt.cacheRead || got.CacheWriteTokens != tt.cacheWr || got.Seen != tt.seen {
+				t.Fatalf("tally = %#v, want input:%d output:%d cacheRead:%d cacheWr:%d seen:%v", got, tt.input, tt.output, tt.cacheRead, tt.cacheWr, tt.seen)
+			}
+			wantTotal := tt.total
+			if wantTotal == 0 && tt.seen && (tt.input > 0 || tt.output > 0) {
+				wantTotal = tt.input + tt.output
+			}
+			if got.total() != wantTotal {
+				t.Fatalf("total() = %d, want %d", got.total(), wantTotal)
+			}
+		})
+	}
+}
+
+func TestPricingCostAndFormatCost(t *testing.T) {
+	pricing := []PricingRule{
+		{ModelPrefix: "gpt-4o", InputPer1M: 2.5, OutputPer1M: 10},
+		{ModelPrefix: "gpt-4o-mini", InputPer1M: 0.15, OutputPer1M: 0.6},
+		{ModelPrefix: "claude-3-5", InputPer1M: 3},
+	}
+	usage := tokenUsage{InputTokens: 1_000_000, OutputTokens: 100_000, Seen: true}
+	// Longest prefix wins: gpt-4o-mini beats gpt-4o.
+	if cost := pricingCost(pricing, "gpt-4o-mini-2024-07-18", usage); cost != 0.15+0.06 {
+		t.Fatalf("gpt-4o-mini cost = %v, want 0.21", cost)
+	}
+	if cost := pricingCost(pricing, "gpt-4o", usage); cost != 2.5+1.0 {
+		t.Fatalf("gpt-4o cost = %v, want 3.5", cost)
+	}
+	// No output rate: only input is priced.
+	if cost := pricingCost(pricing, "claude-3-5-sonnet", usage); cost != 3.0 {
+		t.Fatalf("claude cost = %v, want 3.0", cost)
+	}
+	// Unmatched model and unseen usage cost nothing.
+	if cost := pricingCost(pricing, "llama-3", usage); cost != 0 {
+		t.Fatalf("unmatched model cost = %v, want 0", cost)
+	}
+	if cost := pricingCost(pricing, "gpt-4o", tokenUsage{}); cost != 0 {
+		t.Fatalf("unseen usage cost = %v, want 0", cost)
+	}
+	for cost, want := range map[float64]string{
+		0:       "$0.00",
+		0.0042:  "$0.0042",
+		0.42:    "$0.4200",
+		12.5:    "$12.50",
+		120:     "$120",
+		12345:   "$12.3k",
+		2500000: "$2.5M",
+	} {
+		if got := formatCost(cost); got != want {
+			t.Fatalf("formatCost(%v) = %q, want %q", cost, got, want)
+		}
+	}
+}
+
+func TestStatsFragmentShowsTokenAndCostPanels(t *testing.T) {
+	hub := newSessionHub()
+	defer hub.close()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	proxy := &Proxy{Logger: logger, Sessions: hub}
+	now := time.Now()
+	hub.mu.Lock()
+	hub.history = []*statsEntry{
+		{sessionID: "s1", started: now, completed: now.Add(time.Second), status: 200, state: "completed", model: "gpt-5", upstream: "openai", tokens: tokenUsage{InputTokens: 100, OutputTokens: 50, TotalTokens: 150, Seen: true}},
+		{sessionID: "s2", started: now.Add(time.Minute), completed: now.Add(time.Minute + time.Second), status: 200, state: "completed", model: "claude-3-5", upstream: "anthropic", tokens: tokenUsage{InputTokens: 80, OutputTokens: 20, TotalTokens: 100, Seen: true}},
+	}
+	hub.mu.Unlock()
+
+	// Without pricing the cost columns must not render.
+	recorder := httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/stats", nil))
+	content := recorder.Body.String()
+	for _, expected := range []string{"Token 用量", "总 Token", "模型 Token 用量", "gpt-5", "claude-3-5", "is-token-in", "is-token-out"} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("stats fragment missing %q", expected)
+		}
+	}
+	if strings.Contains(content, "估算成本") || strings.Contains(content, "<th>成本</th>") {
+		t.Fatalf("cost card/columns must not render without a pricing table")
+	}
+
+	hub.setPricing([]PricingRule{{ModelPrefix: "gpt-", InputPer1M: 3, OutputPer1M: 15}})
+	recorder = httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/stats", nil))
+	content = recorder.Body.String()
+	if !strings.Contains(content, "<th>成本</th>") || !strings.Contains(content, "估算成本") {
+		t.Fatalf("priced fragment should render cost columns:\n%s", content)
+	}
+	if !strings.Contains(content, "$0.001") {
+		t.Fatalf("priced fragment should show estimated cost (gpt-5: 100/1e6*3 + 50/1e6*15 = 0.00105, claude unmatched = 0):\n%s", content)
+	}
+}
+
+func TestConfigSavePreservesPricing(t *testing.T) {
+	store := MemoryConfig()
+	if err := store.Write([]byte("debug: true\nupstreams:\n- name: default\n  url: https://example.com/v1\n  authorization:\n    type: none\npricing:\n- modelPrefix: gpt-4o\n  inputPer1M: 2.5\n  outputPer1M: 10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := loadSettings(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	proxy := &Proxy{Config: store, Logger: logger, Upstreams: settings.Upstreams, Pricing: settings.Pricing, AllowDebug: true, Sessions: newSessionHub()}
+	defer proxy.Sessions.close()
+
+	// The browser saves only {debug, appSelectors, upstreams}; pricing must
+	// survive the round trip instead of being wiped by the nil field.
+	body := `{"debug":false,"appSelectors":[],"upstreams":[{"name":"default","url":"https://example.com/v1","authorization":{"type":"none"}}]}`
+	recorder := httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/config", strings.NewReader(body)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("config save status = %d %q", recorder.Code, recorder.Body.String())
+	}
+	reloaded, err := loadSettings(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.Pricing) != 1 || reloaded.Pricing[0].ModelPrefix != "gpt-4o" || reloaded.Pricing[0].InputPer1M != 2.5 {
+		t.Fatalf("pricing lost on config save: %#v", reloaded.Pricing)
+	}
+	// And a YAML save that explicitly carries pricing replaces the table.
+	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/config", strings.NewReader("debug: false\nupstreams:\n- name: default\n  url: https://example.com/v1\n  authorization:\n    type: none\npricing:\n- modelPrefix: claude-3\n  inputPer1M: 3\n  outputPer1M: 15\n")))
+	reloaded, err = loadSettings(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.Pricing) != 1 || reloaded.Pricing[0].ModelPrefix != "claude-3" {
+		t.Fatalf("pricing should be replaceable via YAML save: %#v", reloaded.Pricing)
 	}
 }

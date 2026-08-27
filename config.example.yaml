@@ -64,3 +64,15 @@ upstreams:
     authorization:
       type: bearer
       value: replace-with-your-backup-token
+# 成本估算（可选）：按模型名前缀匹配的每百万 token 美元单价。
+# 最长前缀胜出；未匹配的请求不计成本。留空则 Stats 页不显示成本列。
+# pricing:
+#   - modelPrefix: gpt-4o
+#     inputPer1M: 2.5
+#     outputPer1M: 10
+#   - modelPrefix: gpt-4o-mini
+#     inputPer1M: 0.15
+#     outputPer1M: 0.6
+#   - modelPrefix: deepseek-chat
+#     inputPer1M: 0.27
+#     outputPer1M: 1.1
