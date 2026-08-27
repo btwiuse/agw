@@ -112,10 +112,18 @@ type Settings struct {
 // PricingRule maps a model-name prefix to USD rates per one million tokens.
 // The longest matching prefix wins when a request is priced; rules without a
 // prefix never match. Rates of zero mean that token class is free.
+//
+// CacheReadPer1M / CacheWritePer1M price Anthropic-style cache tokens, which
+// are reported outside input_tokens; when unset they fall back to the input
+// rate. OpenAI/DeepSeek-style cached tokens (a subset of prompt_tokens) are
+// only split out and re-priced when a cache rate is configured, so they are
+// never double-charged.
 type PricingRule struct {
-	ModelPrefix string  `yaml:"modelPrefix" json:"modelPrefix"`
-	InputPer1M  float64 `yaml:"inputPer1M" json:"inputPer1M"`
-	OutputPer1M float64 `yaml:"outputPer1M" json:"outputPer1M"`
+	ModelPrefix     string  `yaml:"modelPrefix" json:"modelPrefix"`
+	InputPer1M      float64 `yaml:"inputPer1M" json:"inputPer1M"`
+	OutputPer1M     float64 `yaml:"outputPer1M" json:"outputPer1M"`
+	CacheReadPer1M  float64 `yaml:"cacheReadPer1M,omitempty" json:"cacheReadPer1M,omitempty"`
+	CacheWritePer1M float64 `yaml:"cacheWritePer1M,omitempty" json:"cacheWritePer1M,omitempty"`
 }
 
 type Proxy struct {
@@ -277,6 +285,16 @@ func validateSettings(settings *Settings) error {
 			}
 			if err := compilePathMatcher(path); err != nil {
 				return fmt.Errorf("app selector %q path rule %d: %w", name, p+1, err)
+			}
+		}
+	}
+	for i, rule := range settings.Pricing {
+		if strings.TrimSpace(rule.ModelPrefix) == "" || strings.ContainsAny(rule.ModelPrefix, "\r\n") {
+			return fmt.Errorf("pricing rule %d has an invalid model prefix", i+1)
+		}
+		for _, rate := range []float64{rule.InputPer1M, rule.OutputPer1M, rule.CacheReadPer1M, rule.CacheWritePer1M} {
+			if rate < 0 {
+				return fmt.Errorf("pricing rule %d has a negative rate", i+1)
 			}
 		}
 	}
@@ -1104,6 +1122,18 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		serveConfigFragment(w, upstreams)
 		return
 	}
+	if r.URL.Path == "/config/pricing" {
+		if r.Method == http.MethodGet {
+			servePricingFragment(w, p)
+			return
+		}
+		if r.Method == http.MethodPut {
+			p.updatePricing(w, r)
+			return
+		}
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	if r.URL.Path == "/logs" && r.Method == http.MethodGet {
 		p.serveLogs(w, r)
 		return
@@ -1326,6 +1356,9 @@ func isManagementRequest(r *http.Request) bool {
 	if (r.URL.Path == "/config" || r.URL.Path == "/config/yaml") && (r.Method == http.MethodGet || r.Method == http.MethodPut) {
 		return true
 	}
+	if r.URL.Path == "/config/pricing" {
+		return true
+	}
 	if r.URL.Path == "/config/secrets" {
 		return true
 	}
@@ -1473,6 +1506,73 @@ func (p *Proxy) serveConfigYAML(w http.ResponseWriter) {
 // in-memory secrets store. Submitted values may be b64:-encoded or plaintext
 // (legacy); the in-memory store always holds the decoded credentials. Nothing
 // is written to disk; the browser keeps them locally.
+// servePricingFragment renders the pricing table rows for the Pricing tab.
+// The tab's toolbar and table shell live in page.html; only the tbody is
+// swapped in (mirroring the upstream config table).
+func servePricingFragment(w http.ResponseWriter, p *Proxy) {
+	p.Mu.RLock()
+	pricing := append([]PricingRule(nil), p.Pricing...)
+	p.Mu.RUnlock()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := getTemplate("pricing.html").Execute(w, pricing); err != nil {
+		http.Error(w, "failed to render pricing", http.StatusInternalServerError)
+	}
+}
+
+// updatePricing replaces the pricing table from the Pricing tab form. The
+// submitted JSON only carries {"pricing": [...]}; everything else in the
+// config (debug, appSelectors, upstreams) is preserved, and the running
+// gateway picks up the new table immediately so stats re-price history on
+// the next render.
+func (p *Proxy) updatePricing(w http.ResponseWriter, r *http.Request) {
+	data, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, "failed to read pricing", http.StatusBadRequest)
+		return
+	}
+	var submitted struct {
+		Pricing []PricingRule `json:"pricing"`
+	}
+	if err := json.Unmarshal(data, &submitted); err != nil {
+		http.Error(w, "invalid pricing: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	p.Mu.RLock()
+	settings := Settings{Debug: p.Debug, AppSelectors: p.AppSelectors, Upstreams: p.Upstreams, Pricing: submitted.Pricing}
+	p.Mu.RUnlock()
+	if err := validateSettings(&settings); err != nil {
+		http.Error(w, "invalid pricing: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	encoded, err := yaml.Marshal(settings)
+	if err != nil {
+		http.Error(w, "failed to encode config", http.StatusInternalServerError)
+		return
+	}
+	p.Mu.Lock()
+	err = p.Config.Write(encoded, 0600)
+	if err == nil {
+		p.Pricing = settings.Pricing
+		if p.Sessions != nil {
+			p.Sessions.setPricing(settings.Pricing)
+		}
+	}
+	p.Mu.Unlock()
+	if err != nil {
+		http.Error(w, "failed to save pricing: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Repaint open dashboards: stats re-render with the new prices even
+	// without new traffic (session events are what normally wake the SSE).
+	if p.Sessions != nil {
+		p.Sessions.publish()
+	}
+	w.Header().Set("HX-Trigger", "pricing-saved")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_, _ = w.Write([]byte(`{"ok":true}`))
+}
+
 func (p *Proxy) updateSecrets(w http.ResponseWriter, r *http.Request) {
 	data, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {

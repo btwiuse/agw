@@ -227,7 +227,7 @@ upstreams:
 - **热门路径**：按方法 + 路径聚合的 Top 8 请求路径。
 - **Token 用量**：输入 / 输出占比的堆叠条 + 总量（含 Anthropic 缓存读 / 缓存写明细），以及**模型 Token 用量表**（模型 / 请求 / Prompt / Completion / 合计，按合计 token 排序，Top 8 + 其他）。
 - **每日明细**：按本地日期聚合的请求 / 错误 / 上行 / 下行 / 平均耗时表（最近 30 个活跃日期）。配置定价表后，Upstream 汇总、每日明细、模型 Token 用量三张表都会追加**成本**列。
-- **成本估算**：在 `config.yaml` 中配置 `pricing`（模型名前缀 → 每百万 token 的美元单价，最长前缀胜出），按上游响应 `usage` 字段实时估算请求成本；未配置定价表时不显示任何成本列。Token 与成本同样写入 `data/stats.jsonl`（`TokenInput` / `TokenOutput` 等字段），重启后不丢失；成本在渲染时按当前定价表重算，因此调整价格会追溯修正历史统计。
+- **成本估算**：在管理页的 **Pricing 标签页**（或 `config.yaml` 的 `pricing` 段）配置模型名前缀 → 每百万 token 的美元单价（最长前缀胜出，UI 保存立即生效），按上游响应 `usage` 字段实时估算请求成本；未配置定价表时不显示任何成本列。`cacheReadPer1M` / `cacheWritePer1M` 支持 Anthropic 风格缓存 token 单独计价（留空回退到输入价），OpenAI/DeepSeek 风格缓存 token（已包含在输入内）配置缓存价后拆分计费、不会重复。Token 与成本同样写入 `data/stats.jsonl`（`TokenInput` / `TokenOutput` / `TokenCacheRead` 等字段），重启后不丢失；成本在渲染时按当前定价表重算，因此调整价格会追溯修正历史统计。
 
 图表为客户端渲染：时间分布用 lightweight-charts，热力图与状态圆环用 Chart.js（均走 CDN，与 htmx / lucide 一致），颜色随页面明暗主题自动切换；图表 canvas 位于稳定容器中，SSE 增量更新只更新数据、不重建图表，避免流式刷新时的闪烁。
 

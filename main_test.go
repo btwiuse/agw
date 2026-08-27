@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -2005,16 +2006,19 @@ func TestConfigPageDefaultsToDarkSessionJournal(t *testing.T) {
 		t.Fatalf("config page Cache-Control = %q, want no-store", got)
 	}
 	content := recorder.Body.String()
-	for _, expected := range []string{"agw-theme", "'dark'", "theme-toggle", "telemetry-tabbar", "SSE connected", "sessions-panel", "logs-panel", "aria-selected=\"true\"", "Compatible AppSelectors", "selector-table-head", ">Rules<", "updateSelectorSummary", "match-value-field", "match-value-actions", "selector-no-rules", "No rules - matches all requests", ">Actions<", "data-selector", "data-drop-zone", "drop-indicator", "松手后放到这里", "data-duplicate-row", "data-duplicate-selector", "session-table-head", ">Selector<", ">Upstream<", ">Model<", ">Send<", ">Receive<", ">Duration<", "data-payload-modal", "data-log-pretty", "data-log-connection", "yaml-config", "data-config-modal", "data-config-yaml", "data-config-yaml-merged", "secrets-config", "data-secrets-modal", "data-secrets-yaml", "data-session-count", "data-selector-tab-count", "data-upstream-tab-count", "data-log-count", `class="tab-count"`, `class="add-row"`, `id="add-selector"`, `id="routing-tab"`, `id="selectors-tab"`, `data-telemetry-tab="routing"`, `data-telemetry-tab="selectors"`, `id="routing-panel" role="tabpanel" aria-labelledby="routing-tab" hidden`, `id="selectors-panel" role="tabpanel" aria-labelledby="selectors-tab"`, `id="sessions-panel" role="tabpanel" aria-labelledby="sessions-tab" hidden`, "viewFromHash", "hashchange", "location.hash", "scheduleSessionReconcile", "sessionGestureActive", "lastSessionHTML", "data-tab-menu-button", `class="tab-menu-button"`, "closeTabMenu", "hamburger-mode", "updateTabLayoutMode", `rel="manifest"`, "og:title", `name="theme-color"`, `rel="icon" href="/favicon.ico"`, "apple-touch-icon", "icon-512.png", `>AppSelector<`, `>Routing<`, `>Sessions<`, `>Logs<`, `data-rule-type-option="method"`, `id="stats-tab"`, `data-telemetry-tab="stats"`, `id="stats-panel"`, `id="stats-view"`, "EventSource('/stats/stream?window=' + statsWindow)", "lightweight-charts", "chart.js", "stats-time-chart", "stats-heatmap", "stats-status", "stats-charts-bars", "data-stats-meta", "stats-donut", "stats-chart-tooltip", "stats-export", "/stats/export", "stats-panel-head-right"} {
+	for _, expected := range []string{"agw-theme", "'dark'", "theme-toggle", "telemetry-tabbar", "SSE connected", "sessions-panel", "logs-panel", "aria-selected=\"true\"", "Compatible AppSelectors", "selector-table-head", ">Rules<", "updateSelectorSummary", "match-value-field", "match-value-actions", "selector-no-rules", "No rules - matches all requests", ">Actions<", "data-selector", "data-drop-zone", "drop-indicator", "松手后放到这里", "data-duplicate-row", "data-duplicate-selector", "session-table-head", ">Selector<", ">Upstream<", ">Model<", ">Send<", ">Receive<", ">Duration<", "data-payload-modal", "data-log-pretty", "data-log-connection", "yaml-config", "data-config-modal", "data-config-yaml", "data-config-yaml-merged", "secrets-config", "data-secrets-modal", "data-secrets-yaml", "data-session-count", "data-selector-tab-count", "data-upstream-tab-count", "data-log-count", `class="tab-count"`, `class="add-row"`, `id="add-selector"`, `id="routing-tab"`, `id="selectors-tab"`, `data-telemetry-tab="routing"`, `data-telemetry-tab="selectors"`, `id="routing-panel" role="tabpanel" aria-labelledby="routing-tab" hidden`, `id="pricing-tab"`, `data-telemetry-tab="pricing"`, `id="pricing-panel" role="tabpanel" aria-labelledby="pricing-tab" hidden`, "pricing-save", "pricing-table", "/config/pricing", "data-pricing-prefix", "data-pricing-cache-read", `id="selectors-panel" role="tabpanel" aria-labelledby="selectors-tab"`, `id="sessions-panel" role="tabpanel" aria-labelledby="sessions-tab" hidden`, "viewFromHash", "hashchange", "location.hash", "scheduleSessionReconcile", "sessionGestureActive", "lastSessionHTML", "data-tab-menu-button", `class="tab-menu-button"`, "closeTabMenu", "hamburger-mode", "updateTabLayoutMode", `rel="manifest"`, "og:title", `name="theme-color"`, `rel="icon" href="/favicon.ico"`, "apple-touch-icon", "icon-512.png", `>AppSelector<`, `>Routing<`, `>Sessions<`, `>Logs<`, `data-rule-type-option="method"`, `id="stats-tab"`, `data-telemetry-tab="stats"`, `id="stats-panel"`, `id="stats-view"`, "EventSource('/stats/stream?window=' + statsWindow)", "lightweight-charts", "chart.js", "stats-time-chart", "stats-heatmap", "stats-status", "stats-charts-bars", "data-stats-meta", "stats-donut", "stats-chart-tooltip", "stats-export", "/stats/export", "stats-panel-head-right"} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("config page missing %q", expected)
 		}
 	}
-	if strings.Count(content, `class="live-dot"`) != 5 {
-		t.Fatalf("all five workspace tabs should carry a live indicator")
+	if strings.Count(content, `class="live-dot"`) != 6 {
+		t.Fatalf("all six workspace tabs should carry a live indicator")
 	}
 	if strings.Index(content, `id="selectors-tab"`) > strings.Index(content, `id="routing-tab"`) {
 		t.Fatalf("AppSelector should be the first tab")
+	}
+	if strings.Index(content, `id="pricing-tab"`) < strings.Index(content, `id="routing-tab"`) || strings.Index(content, `id="pricing-tab"`) > strings.Index(content, `id="sessions-tab"`) {
+		t.Fatalf("Pricing should sit between Routing and Sessions")
 	}
 	for _, expected := range []string{"data-rule", "data-rule-type", "rule-kind", "data-add-rule", "data-rule-type-option", `data-rule-type-option="query"`, "data-rule-enabled", "data-rule-delete", "data-rule-empty", "rule-switch"} {
 		if !strings.Contains(content, expected) {
@@ -2867,5 +2871,160 @@ func TestRequestWriteFailureClassifiesInterrupted(t *testing.T) {
 	}
 	if states["中断"] != 1 || states["完成"] != 0 {
 		t.Fatalf("failed-write request should be interrupted, got %#v", view.States)
+	}
+}
+
+func TestPricingCostCacheSemantics(t *testing.T) {
+	rule := []PricingRule{{ModelPrefix: "claude-3-5", InputPer1M: 3, OutputPer1M: 15, CacheReadPer1M: 0.3, CacheWritePer1M: 0.6}}
+	// Anthropic style: cache tokens are outside input_tokens and priced at
+	// their own rates.
+	anthropic := tokenUsage{InputTokens: 1000, OutputTokens: 100, CacheReadTokens: 500, CacheWriteTokens: 200, TotalTokens: 1300, Seen: true, CacheExcluded: true}
+	got := pricingCost(rule, "claude-3-5-sonnet", anthropic)
+	want := 1000.0/1e6*3 + 100.0/1e6*15 + 500.0/1e6*0.3 + 200.0/1e6*0.6
+	if math.Abs(got-want) > 1e-12 {
+		t.Fatalf("anthropic cache cost = %v, want %v", got, want)
+	}
+	// Anthropic without cache rates: cache falls back to the input rate.
+	noCacheRates := []PricingRule{{ModelPrefix: "claude-3-5", InputPer1M: 3, OutputPer1M: 15}}
+	got = pricingCost(noCacheRates, "claude-3-5", anthropic)
+	want = 1000.0/1e6*3 + 100.0/1e6*15 + (500.0+200.0)/1e6*3
+	if math.Abs(got-want) > 1e-12 {
+		t.Fatalf("anthropic fallback cost = %v, want %v", got, want)
+	}
+	// OpenAI style: cached tokens are a subset of prompt_tokens; with a cache
+	// rate configured the cached portion is re-priced, not double-charged.
+	openai := tokenUsage{InputTokens: 1000, OutputTokens: 100, CacheReadTokens: 400, TotalTokens: 1100, Seen: true}
+	got = pricingCost(rule, "claude-3-5", openai)
+	want = (1000-400)/1e6*3 + 100.0/1e6*15 + 400.0/1e6*0.3
+	if math.Abs(got-want) > 1e-12 {
+		t.Fatalf("openai subset cost = %v, want %v", got, want)
+	}
+	// OpenAI style without a cache rate: everything stays at the input rate.
+	got = pricingCost(noCacheRates, "claude-3-5", openai)
+	want = 1000.0/1e6*3 + 100.0/1e6*15
+	if math.Abs(got-want) > 1e-12 {
+		t.Fatalf("openai no-cache-rate cost = %v, want %v", got, want)
+	}
+}
+
+func TestStatsRecordCacheExcludedRoundTrip(t *testing.T) {
+	record := statsRecord{
+		SessionID: "s1", Status: 200, State: "completed",
+		TokenInput: 100, TokenOutput: 50, TokenCacheRead: 30, TokenCacheWrite: 10,
+		TokenTotal: 160, TokenCacheExcluded: true,
+	}
+	entry := record.entry()
+	if !entry.tokens.CacheExcluded || entry.tokens.CacheReadTokens != 30 || entry.tokens.CacheWriteTokens != 10 {
+		t.Fatalf("record round trip lost cache semantics: %#v", entry.tokens)
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back statsRecord
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if !back.TokenCacheExcluded || back.TokenCacheRead != 30 {
+		t.Fatalf("statsRecord JSON round trip = %#v", back)
+	}
+}
+
+func TestPricingFragmentRenders(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	hub := newSessionHub()
+	defer hub.close()
+	proxy := &Proxy{Logger: logger, Sessions: hub, Pricing: []PricingRule{{ModelPrefix: "gpt-4o", InputPer1M: 2.5, OutputPer1M: 10, CacheReadPer1M: 1.25}}}
+
+	recorder := httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/config/pricing", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("pricing fragment status = %d", recorder.Code)
+	}
+	content := recorder.Body.String()
+	for _, expected := range []string{`data-pricing-prefix value="gpt-4o"`, `data-pricing-input value="2.5"`, `data-pricing-output value="10"`, `data-pricing-cache-read value="1.25"`, "data-pricing-delete"} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("pricing fragment missing %q: %s", expected, content)
+		}
+	}
+
+	// Empty pricing renders the empty-state row.
+	proxy = &Proxy{Logger: logger, Sessions: hub}
+	recorder = httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/config/pricing", nil))
+	if !strings.Contains(recorder.Body.String(), "pricing-empty") {
+		t.Fatalf("empty pricing fragment should render the empty state: %s", recorder.Body.String())
+	}
+}
+
+func TestUpdatePricingEndpoint(t *testing.T) {
+	store := MemoryConfig()
+	config := "debug: true\nupstreams:\n- name: default\n  url: https://example.com/v1\n  authorization:\n    type: none\n"
+	if err := store.Write([]byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := loadSettings(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := newSessionHub()
+	defer hub.close()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	proxy := &Proxy{Config: store, Logger: logger, Upstreams: settings.Upstreams, Sessions: hub, AllowDebug: true}
+
+	body := `{"pricing":[{"modelPrefix":"claude-3-5","inputPer1M":3,"outputPer1M":15,"cacheReadPer1M":0.3,"cacheWritePer1M":0.6}]}`
+	recorder := httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/config/pricing", strings.NewReader(body)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("pricing save status = %d %q", recorder.Code, recorder.Body.String())
+	}
+	// The config file keeps upstreams and gains pricing.
+	reloaded, err := loadSettings(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.Upstreams) != 1 || reloaded.Upstreams[0].URL != "https://example.com/v1" {
+		t.Fatalf("pricing save must preserve upstreams: %#v", reloaded.Upstreams)
+	}
+	if len(reloaded.Pricing) != 1 || reloaded.Pricing[0].ModelPrefix != "claude-3-5" || reloaded.Pricing[0].CacheReadPer1M != 0.3 {
+		t.Fatalf("pricing not persisted: %#v", reloaded.Pricing)
+	}
+	// The running hub picks the table up immediately: stats gain cost columns.
+	now := time.Now()
+	hub.mu.Lock()
+	hub.history = []*statsEntry{{sessionID: "s1", started: now, completed: now.Add(time.Second), status: 200, state: "completed", model: "claude-3-5", tokens: tokenUsage{InputTokens: 1000, OutputTokens: 100, CacheReadTokens: 500, CacheWriteTokens: 200, TotalTokens: 1300, Seen: true, CacheExcluded: true}}}
+	hub.mu.Unlock()
+	view := hub.stats("all")
+	if !view.HasCost || view.Cost == "" {
+		t.Fatalf("stats should show cost after pricing save: %#v", view)
+	}
+	// Invalid submissions are rejected without touching the file.
+	before, _ := store.Read()
+	recorder = httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/config/pricing", strings.NewReader(`{"pricing":[{"modelPrefix":"","inputPer1M":1}]}`)))
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("empty prefix should be rejected, got %d", recorder.Code)
+	}
+	recorder = httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/config/pricing", strings.NewReader(`{"pricing":[{"modelPrefix":"gpt-4o","inputPer1M":-1}]}`)))
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("negative rate should be rejected, got %d", recorder.Code)
+	}
+	after, _ := store.Read()
+	if string(before) != string(after) {
+		t.Fatalf("invalid pricing save must not rewrite the config")
+	}
+	// Saving an empty table clears pricing.
+	recorder = httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/config/pricing", strings.NewReader(`{"pricing":[]}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("clearing pricing status = %d", recorder.Code)
+	}
+	reloaded, err = loadSettings(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.Pricing) != 0 {
+		t.Fatalf("pricing should be cleared: %#v", reloaded.Pricing)
 	}
 }

@@ -51,12 +51,13 @@ type sessionRequest struct {
 	Events             []sessionEvent
 	// Token accounting extracted from the upstream response while streaming
 	// (see usageScanner); zero for responses without a usage object.
-	TokenInput      int64
-	TokenOutput     int64
-	TokenCacheRead  int64
-	TokenCacheWrite int64
-	TokenTotal      int64
-	HasTokenUsage   bool
+	TokenInput         int64
+	TokenOutput        int64
+	TokenCacheRead     int64
+	TokenCacheWrite    int64
+	TokenCacheExcluded bool
+	TokenTotal         int64
+	HasTokenUsage      bool
 }
 
 type sessionEvent struct {
@@ -399,6 +400,7 @@ func (t *trackedSession) complete(status, bytes int, contextErr error) {
 		request.TokenOutput = usage.OutputTokens
 		request.TokenCacheRead = usage.CacheReadTokens
 		request.TokenCacheWrite = usage.CacheWriteTokens
+		request.TokenCacheExcluded = usage.CacheExcluded
 		request.TokenTotal = usage.total()
 		request.HasTokenUsage = usage.Seen
 		if request.ResponsePayload != nil {
@@ -623,6 +625,16 @@ func (h *sessionHub) publishLocked() {
 		default:
 		}
 	}
+}
+
+// publish wakes every session/stats subscriber without touching records.
+// Config-only changes that alter the stats render (e.g. a pricing table
+// save) call it so open dashboards repaint immediately instead of waiting
+// for the next request.
+func (h *sessionHub) publish() {
+	h.mu.Lock()
+	h.publishLocked()
+	h.mu.Unlock()
 }
 
 func (h *sessionHub) findRequestLocked(tracked *trackedSession) *sessionRequest {

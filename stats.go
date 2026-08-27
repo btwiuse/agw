@@ -182,6 +182,11 @@ type tokenUsage struct {
 	// Seen reports whether any usage object was parsed from the response, even
 	// a zero one; a provider can answer with a valid but empty usage block.
 	Seen bool
+	// CacheExcluded reports that cache tokens are NOT included in
+	// InputTokens (Anthropic semantics: input_tokens excludes cache reads
+	// and creations). OpenAI/DeepSeek report cached tokens as a subset of
+	// prompt_tokens instead; pricing must not double-count either way.
+	CacheExcluded bool
 }
 
 // total reports the total token count, falling back to input+output when the
@@ -423,9 +428,11 @@ func (u *tokenUsage) merge(parsed usagePayload) {
 	}
 	if parsed.CacheReadTokens != nil {
 		u.CacheReadTokens = max64(u.CacheReadTokens, *parsed.CacheReadTokens)
+		u.CacheExcluded = true
 	}
 	if parsed.CacheCreationTokens != nil {
 		u.CacheWriteTokens = max64(u.CacheWriteTokens, *parsed.CacheCreationTokens)
+		u.CacheExcluded = true
 	}
 	if parsed.PromptCacheHit != nil {
 		u.CacheReadTokens = max64(u.CacheReadTokens, *parsed.PromptCacheHit)
@@ -445,6 +452,12 @@ func max64(a, b int64) int64 {
 // pricingCost estimates the USD cost of one request from the pricing table:
 // the longest matching model-prefix rule wins, and requests whose model has no
 // rule (or that carried no usage object) cost nothing.
+//
+// Cache tokens are handled per provider semantics: Anthropic-style usage
+// (CacheExcluded) prices cache reads/creations separately at their own rates
+// (falling back to the input rate when unset), while OpenAI/DeepSeek-style
+// usage keeps cached tokens inside the input total and only splits them out
+// when a cache rate is configured, so nothing is ever double-charged.
 func pricingCost(pricing []PricingRule, model string, usage tokenUsage) float64 {
 	if !usage.Seen || len(pricing) == 0 || model == "" {
 		return 0
@@ -464,7 +477,42 @@ func pricingCost(pricing []PricingRule, model string, usage tokenUsage) float64 
 		return 0
 	}
 	rule := pricing[best]
-	return float64(usage.InputTokens)/1_000_000*rule.InputPer1M + float64(usage.OutputTokens)/1_000_000*rule.OutputPer1M
+	input := usage.InputTokens
+	cacheRead := usage.CacheReadTokens
+	cacheWrite := usage.CacheWriteTokens
+	readRate := rule.CacheReadPer1M
+	writeRate := rule.CacheWritePer1M
+	if usage.CacheExcluded {
+		// Anthropic: cache tokens are outside input_tokens; price them
+		// separately, falling back to the input rate when unset.
+		if readRate == 0 {
+			readRate = rule.InputPer1M
+		}
+		if writeRate == 0 {
+			writeRate = rule.InputPer1M
+		}
+	} else {
+		// OpenAI/DeepSeek: cached tokens are a subset of prompt_tokens. Split
+		// them out only when a cache rate is configured; otherwise they stay
+		// priced at the input rate.
+		if readRate == 0 {
+			cacheRead = 0
+		} else {
+			input -= cacheRead
+		}
+		if writeRate == 0 {
+			cacheWrite = 0
+		} else {
+			input -= cacheWrite
+		}
+	}
+	if input < 0 {
+		input = 0
+	}
+	return float64(input)/1_000_000*rule.InputPer1M +
+		float64(usage.OutputTokens)/1_000_000*rule.OutputPer1M +
+		float64(cacheRead)/1_000_000*readRate +
+		float64(cacheWrite)/1_000_000*writeRate
 }
 
 // formatCost renders a dollar amount like the reference dashboard's compact
@@ -512,23 +560,24 @@ func isFinalState(state string) bool {
 // to data/stats.jsonl when a request completes. Field names follow the
 // session journal files so both logs stay readable side by side.
 type statsRecord struct {
-	SessionID       string    `json:"SessionID"`
-	StartedAt       time.Time `json:"StartedAt"`
-	CompletedAt     time.Time `json:"CompletedAt"`
-	Status          int       `json:"Status"`
-	State           string    `json:"State"`
-	Upstream        string    `json:"Upstream,omitempty"`
-	AppSelector     string    `json:"AppSelector,omitempty"`
-	Model           string    `json:"Model,omitempty"`
-	Method          string    `json:"Method,omitempty"`
-	Path            string    `json:"Path,omitempty"`
-	RequestBytes    int64     `json:"RequestBytes,omitempty"`
-	ResponseBytes   int64     `json:"ResponseBytes,omitempty"`
-	TokenInput      int64     `json:"TokenInput,omitempty"`
-	TokenOutput     int64     `json:"TokenOutput,omitempty"`
-	TokenCacheRead  int64     `json:"TokenCacheRead,omitempty"`
-	TokenCacheWrite int64     `json:"TokenCacheWrite,omitempty"`
-	TokenTotal      int64     `json:"TokenTotal,omitempty"`
+	SessionID          string    `json:"SessionID"`
+	StartedAt          time.Time `json:"StartedAt"`
+	CompletedAt        time.Time `json:"CompletedAt"`
+	Status             int       `json:"Status"`
+	State              string    `json:"State"`
+	Upstream           string    `json:"Upstream,omitempty"`
+	AppSelector        string    `json:"AppSelector,omitempty"`
+	Model              string    `json:"Model,omitempty"`
+	Method             string    `json:"Method,omitempty"`
+	Path               string    `json:"Path,omitempty"`
+	RequestBytes       int64     `json:"RequestBytes,omitempty"`
+	ResponseBytes      int64     `json:"ResponseBytes,omitempty"`
+	TokenInput         int64     `json:"TokenInput,omitempty"`
+	TokenOutput        int64     `json:"TokenOutput,omitempty"`
+	TokenCacheRead     int64     `json:"TokenCacheRead,omitempty"`
+	TokenCacheWrite    int64     `json:"TokenCacheWrite,omitempty"`
+	TokenCacheExcluded bool      `json:"TokenCacheExcluded,omitempty"`
+	TokenTotal         int64     `json:"TokenTotal,omitempty"`
 }
 
 func statsRecordFromRequest(sessionID string, request *sessionRequest) statsRecord {
@@ -539,7 +588,7 @@ func statsRecordFromRequest(sessionID string, request *sessionRequest) statsReco
 		Path: request.Path, RequestBytes: request.RequestBytes, ResponseBytes: request.ResponseBytes,
 		TokenInput: request.TokenInput, TokenOutput: request.TokenOutput,
 		TokenCacheRead: request.TokenCacheRead, TokenCacheWrite: request.TokenCacheWrite,
-		TokenTotal: request.TokenTotal,
+		TokenCacheExcluded: request.TokenCacheExcluded, TokenTotal: request.TokenTotal,
 	}
 }
 
@@ -553,6 +602,7 @@ func (r statsRecord) entry() *statsEntry {
 			InputTokens: r.TokenInput, OutputTokens: r.TokenOutput,
 			CacheReadTokens: r.TokenCacheRead, CacheWriteTokens: r.TokenCacheWrite,
 			TotalTokens: r.TokenTotal, Seen: r.TokenTotal > 0 || r.TokenInput > 0 || r.TokenOutput > 0,
+			CacheExcluded: r.TokenCacheExcluded,
 		},
 		isError: r.Status >= 400 || errorState(r.State),
 	}
@@ -654,6 +704,7 @@ func updateStatsEntry(entry *statsEntry, request *sessionRequest) {
 		InputTokens: request.TokenInput, OutputTokens: request.TokenOutput,
 		CacheReadTokens: request.TokenCacheRead, CacheWriteTokens: request.TokenCacheWrite,
 		TotalTokens: request.TokenTotal, Seen: request.HasTokenUsage,
+		CacheExcluded: request.TokenCacheExcluded,
 	}
 	entry.isError = request.Status >= 400 || errorState(request.State)
 }

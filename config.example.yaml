@@ -66,6 +66,10 @@ upstreams:
       value: replace-with-your-backup-token
 # 成本估算（可选）：按模型名前缀匹配的每百万 token 美元单价。
 # 最长前缀胜出；未匹配的请求不计成本。留空则 Stats 页不显示成本列。
+# 也可以在管理页的 Pricing 标签页图形化编辑并保存（保存即生效）。
+# cacheReadPer1M / cacheWritePer1M 用于 Anthropic 风格的缓存 token
+# （input_tokens 之外单独上报），留空回退到输入价；OpenAI/DeepSeek 风格
+# 的缓存 token 已包含在输入里，配置缓存价后会拆分按缓存价计，不会重复计费。
 # pricing:
 #   - modelPrefix: gpt-4o
 #     inputPer1M: 2.5
@@ -73,6 +77,11 @@ upstreams:
 #   - modelPrefix: gpt-4o-mini
 #     inputPer1M: 0.15
 #     outputPer1M: 0.6
+#   - modelPrefix: claude-3-5-sonnet
+#     inputPer1M: 3
+#     outputPer1M: 15
+#     cacheReadPer1M: 0.3
+#     cacheWritePer1M: 3
 #   - modelPrefix: deepseek-chat
 #     inputPer1M: 0.27
 #     outputPer1M: 1.1
