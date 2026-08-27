@@ -67,31 +67,32 @@ func windowOptions(window string) []statsWindow {
 // numbers, percentages and bar heights are computed server side so the
 // template stays free of logic.
 type statsView struct {
-	Requests    int64
-	Sessions    int64
-	Errors      int64
-	ErrorRate   string
-	InBytes     string
-	OutBytes    string
-	AvgDuration string
-	P95Duration string
-	MaxDuration string
-	SpanLabel   string
-	BucketLabel string
-	MaxBucket   int64
-	Buckets     []statsBucket
-	Statuses    []statsBar
-	States      []statsBar
-	Upstreams   []statsBar
-	Selectors   []statsBar
-	Models      []statsBar
-	Methods     []statsBar
-	TopPaths    []statsPath
-	Daily       []statsDailyRow
-	SeriesJSON  string
-	Window      string
-	Windows     []statsWindow
-	Empty       bool
+	Requests     int64
+	Sessions     int64
+	Errors       int64
+	ErrorRate    string
+	InBytes      string
+	OutBytes     string
+	AvgDuration  string
+	P95Duration  string
+	MaxDuration  string
+	SpanLabel    string
+	BucketLabel  string
+	MaxBucket    int64
+	Buckets      []statsBucket
+	Statuses     []statsBar
+	States       []statsBar
+	Upstreams    []statsBar
+	Selectors    []statsBar
+	Models       []statsBar
+	Methods      []statsBar
+	TopPaths     []statsPath
+	UpstreamRows []statsUpstreamRow
+	Daily        []statsDailyRow
+	SeriesJSON   string
+	Window       string
+	Windows      []statsWindow
+	Empty        bool
 }
 
 type statsWindow struct {
@@ -108,6 +109,9 @@ type statsBucket struct {
 	Errors int64
 	H      int
 	EH     int
+	AvgMs  float64
+	P50Ms  float64
+	P95Ms  float64
 }
 
 type statsBar struct {
@@ -365,6 +369,7 @@ func (h *sessionHub) stats(window string) statsView {
 	view.Models = nameBreakdown(entries, func(e statsEntry) string { return e.model }, "未知模型")
 	view.Methods = nameBreakdown(entries, func(e statsEntry) string { return e.method }, "未知方法")
 	view.TopPaths = topPaths(entries)
+	view.UpstreamRows = upstreamRows(entries)
 	view.Daily = dailyRows(entries)
 	view.SeriesJSON = buildSeriesJSON(entries, view.Buckets, view.Statuses, fmt.Sprintf("%s · 每%s聚合 · 峰值 %d 请求", view.SpanLabel, view.BucketLabel, view.MaxBucket))
 	return view
@@ -399,6 +404,7 @@ func bucketSeries(entries []statsEntry) ([]statsBucket, string, string) {
 	}
 	count := int(span/width) + 1
 	buckets := make([]statsBucket, count)
+	bucketDurations := make([][]time.Duration, count)
 	maxCount := int64(0)
 	for _, entry := range entries {
 		index := int(entry.started.Sub(minTime) / width)
@@ -411,6 +417,9 @@ func bucketSeries(entries []statsEntry) ([]statsBucket, string, string) {
 		buckets[index].Count++
 		if entry.isError {
 			buckets[index].Errors++
+		}
+		if !entry.completed.IsZero() && entry.completed.After(entry.started) {
+			bucketDurations[index] = append(bucketDurations[index], entry.completed.Sub(entry.started))
 		}
 		if buckets[index].Count > maxCount {
 			maxCount = buckets[index].Count
@@ -434,8 +443,40 @@ func bucketSeries(entries []statsEntry) ([]statsBucket, string, string) {
 		if bucket.Errors > 0 {
 			bucket.EH = barHeight(bucket.Errors, maxCount)
 		}
+		if bucket.Count > 0 && len(bucketDurations[index]) > 0 {
+			bucket.AvgMs, bucket.P50Ms, bucket.P95Ms = bucketLatency(bucketDurations[index])
+		}
 	}
 	return buckets, spanLabel, bucketLabel
+}
+
+// bucketLatency summarizes the durations of one bucket as average, p50 and
+// p95 in milliseconds; percentiles use nearest-rank on the sorted list.
+func bucketLatency(durations []time.Duration) (avgMs, p50Ms, p95Ms float64) {
+	if len(durations) == 0 {
+		return 0, 0, 0
+	}
+	sorted := make([]time.Duration, len(durations))
+	copy(sorted, durations)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	var sum time.Duration
+	for _, duration := range sorted {
+		sum += duration
+	}
+	avgMs = float64(sum) / float64(len(sorted)) / float64(time.Millisecond)
+	p50 := nearestRankPercentile(sorted, 0.5)
+	p95 := nearestRankPercentile(sorted, 0.95)
+	return avgMs, float64(p50) / float64(time.Millisecond), float64(p95) / float64(time.Millisecond)
+}
+
+// nearestRankPercentile returns the duration at the p-th percentile of an
+// already-sorted list (clamped to the last element).
+func nearestRankPercentile(sorted []time.Duration, p float64) time.Duration {
+	index := int(math.Ceil(p*float64(len(sorted)))) - 1
+	if index < 0 {
+		index = 0
+	}
+	return sorted[index]
 }
 
 // pickBucketWidth selects a bucket width from a ladder so that at most ~96
@@ -544,6 +585,74 @@ func nameBreakdown(entries []statsEntry, pick func(statsEntry) string, emptyLabe
 	return makeBars(sortedNames(counts), counts, int64(len(entries)), nil)
 }
 
+// statsUpstreamRow is one row of the per-upstream summary table, sorted by
+// request volume so the busiest upstreams surface first.
+type statsUpstreamRow struct {
+	Name      string
+	Requests  int64
+	Errors    int64
+	ErrorRate string
+	InBytes   string
+	OutBytes  string
+	Avg       string
+}
+
+// upstreamRows aggregates requests per upstream into a compact comparison
+// table (volume, error rate, traffic, average latency).
+func upstreamRows(entries []statsEntry) []statsUpstreamRow {
+	type agg struct {
+		requests, errors, inBytes, outBytes int64
+		durations                           []time.Duration
+	}
+	groups := make(map[string]*agg)
+	for _, entry := range entries {
+		name := entry.upstream
+		if name == "" {
+			name = "未记录"
+		}
+		group := groups[name]
+		if group == nil {
+			group = &agg{}
+			groups[name] = group
+		}
+		group.requests++
+		if entry.isError {
+			group.errors++
+		}
+		group.inBytes += entry.reqBytes
+		group.outBytes += entry.respBytes
+		if !entry.completed.IsZero() && entry.completed.After(entry.started) {
+			group.durations = append(group.durations, entry.completed.Sub(entry.started))
+		}
+	}
+	rows := make([]statsUpstreamRow, 0, len(groups))
+	for name, group := range groups {
+		row := statsUpstreamRow{
+			Name:      name,
+			Requests:  group.requests,
+			Errors:    group.errors,
+			ErrorRate: percentString(group.errors, group.requests),
+			InBytes:   formatBytes64(group.inBytes),
+			OutBytes:  formatBytes64(group.outBytes),
+		}
+		if len(group.durations) > 0 {
+			var sum time.Duration
+			for _, duration := range group.durations {
+				sum += duration
+			}
+			row.Avg = formatDuration(time.Duration(int64(sum) / int64(len(group.durations))))
+		}
+		rows = append(rows, row)
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Requests != rows[j].Requests {
+			return rows[i].Requests > rows[j].Requests
+		}
+		return rows[i].Name < rows[j].Name
+	})
+	return rows
+}
+
 func makeBars(names []string, counts map[string]int64, total int64, classFor func(string) string) []statsBar {
 	names = append([]string(nil), names...)
 	sort.Slice(names, func(i, j int) bool { return counts[names[i]] > counts[names[j]] })
@@ -624,9 +733,12 @@ type statsSeries struct {
 }
 
 type statsSeriesBucket struct {
-	Time   int64 `json:"t"`
-	Count  int64 `json:"count"`
-	Errors int64 `json:"errors"`
+	Time   int64   `json:"t"`
+	Count  int64   `json:"count"`
+	Errors int64   `json:"errors"`
+	AvgMs  float64 `json:"avg,omitempty"`
+	P50Ms  float64 `json:"p50,omitempty"`
+	P95Ms  float64 `json:"p95,omitempty"`
 }
 
 type statsSeriesStatus struct {
@@ -650,7 +762,7 @@ func buildSeriesJSON(entries []statsEntry, buckets []statsBucket, statuses []sta
 		Meta:     meta,
 	}
 	for _, bucket := range buckets {
-		series.Buckets = append(series.Buckets, statsSeriesBucket{Time: bucket.Unix, Count: bucket.Count, Errors: bucket.Errors})
+		series.Buckets = append(series.Buckets, statsSeriesBucket{Time: bucket.Unix, Count: bucket.Count, Errors: bucket.Errors, AvgMs: bucket.AvgMs, P50Ms: bucket.P50Ms, P95Ms: bucket.P95Ms})
 	}
 	for _, status := range statuses {
 		series.Statuses = append(series.Statuses, statsSeriesStatus{Name: status.Name, Count: status.Count})

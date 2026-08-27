@@ -2209,10 +2209,13 @@ func TestStatsAggregation(t *testing.T) {
 	if len(view.TopPaths) != 2 || view.TopPaths[0].Path != "/responses" || view.TopPaths[0].Count != 2 {
 		t.Fatalf("top paths = %#v", view.TopPaths)
 	}
+	if len(view.UpstreamRows) != 1 || view.UpstreamRows[0].Name != "openai" || view.UpstreamRows[0].Requests != 3 || view.UpstreamRows[0].Errors != 1 || view.UpstreamRows[0].ErrorRate != "33%" || view.UpstreamRows[0].InBytes != "100 B" || view.UpstreamRows[0].OutBytes != "170 B" || view.UpstreamRows[0].Avg != "2.167s" {
+		t.Fatalf("upstream rows = %#v", view.UpstreamRows)
+	}
 	if len(view.Daily) != 1 || view.Daily[0].Date != "2026-08-10" || view.Daily[0].Requests != 3 || view.Daily[0].Errors != 1 {
 		t.Fatalf("daily rows = %#v", view.Daily)
 	}
-	for _, fragment := range []string{`"buckets"`, `"heatmap"`, `"statuses"`, `"meta"`} {
+	for _, fragment := range []string{`"buckets"`, `"heatmap"`, `"statuses"`, `"meta"`, `"p50"`} {
 		if !strings.Contains(view.SeriesJSON, fragment) {
 			t.Fatalf("series JSON missing %s: %s", fragment, view.SeriesJSON)
 		}
@@ -2223,6 +2226,11 @@ func TestStatsAggregation(t *testing.T) {
 	}
 	if len(series.Buckets) != 3 || len(series.Statuses) != 2 || len(series.Heatmap) == 0 {
 		t.Fatalf("series payload = %#v", series)
+	}
+	// Per-bucket latency (ms): single request buckets collapse to their own
+	// duration for avg/p50/p95.
+	if series.Buckets[0].P50Ms != 2000 || series.Buckets[0].AvgMs != 2000 || series.Buckets[1].P95Ms != 4000 || series.Buckets[2].P50Ms != 500 {
+		t.Fatalf("bucket latency = %#v", series.Buckets)
 	}
 	// Heatmap cells are keyed by UTC hour/day so the browser can shift them
 	// into the operator's own timezone.
@@ -2333,7 +2341,7 @@ func TestStatsRouteRendersFragment(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/stats", nil))
 	content := recorder.Body.String()
-	for _, expected := range []string{"请求总数", "错误率", "x̅", "openai", "gpt-5", "codex", "/responses", "data-stats-head", "data-stats-series=", "data-stats-bars", "每日明细", "stats-table-daily", `data-stats-window="all"`, `data-stats-window-button="1h"`, `data-stats-window-button="all"`, "buckets", "heatmap", "statuses"} {
+	for _, expected := range []string{"请求总数", "错误率", "x̅", "openai", "gpt-5", "codex", "/responses", "data-stats-head", "data-stats-series=", "data-stats-bars", "每日明细", "Upstream 汇总", "stats-table-daily", `data-stats-window="all"`, `data-stats-window-button="1h"`, `data-stats-window-button="all"`, "buckets", "heatmap", "statuses"} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("stats fragment missing %q:\n%s", expected, content)
 		}
