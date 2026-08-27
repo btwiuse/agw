@@ -369,9 +369,11 @@
     @media (max-width: 760px) { .shell { width: min(100% - 24px, 1220px); margin-top: 12px; } .telemetry { margin-top: 12px; } .selector-table-head { display: none; } .selector-row { grid-template-columns: 1fr; gap: 8px; padding: 12px 15px; } .selector-actions { justify-content: space-between; } .session-table-head { display: none; } .session-summary { grid-template-columns: 8px minmax(0, 1fr) auto 60px 60px 18px; gap: 9px; } .session-metric { display: none; } .session-metric.session-send, .session-metric.session-receive { display: inline-flex; } .session-status { display: none; } .session-selector, .session-upstream, .session-model { display: none; } .header-list div { grid-template-columns: 105px minmax(0, 1fr); } .gateway-events li { grid-template-columns: 58px 76px minmax(0, 1fr) 34px 34px; } }
     @media (max-width: 760px) { .gateway-events li { grid-template-columns: 58px 76px minmax(0, 1fr); } }
     .stats-view { display: grid; gap: 12px; padding: 14px; }
+    [data-stats-head] { display: grid; gap: 12px; }
     .stats-charts { display: grid; gap: 12px; padding: 0 14px 14px; }
     .stats-panel-wide { grid-column: 1 / -1; }
-    .stats-windowbar { display: flex; flex-wrap: wrap; gap: 6px; }
+    #stats-charts-bars { display: grid; gap: 12px; }
+    .stats-windowbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
     .stats-window { padding: 4px 11px; color: #53716a; background: #fff; border: 1px solid #c8d4d0; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight: 700; transition: color .15s ease, border-color .15s ease, background .15s ease; }
     .stats-window:hover { color: #176d59; border-color: #8fb7aa; }
     .stats-window.is-active { color: #173d34; background: #d9efc3; border-color: #a8cf77; }
@@ -390,6 +392,10 @@
     .stats-panel-meta { color: #82928e; font-size: 11px; white-space: nowrap; }
     .stats-chart-box { position: relative; height: 260px; margin: 12px 14px 0; }
     .stats-chart-box canvas { border-radius: 4px; }
+    /* lightweight-charts renders its panes as an internal table; the app's
+       global table/th/td rules (border-spacing, padding) must not leak in,
+       or the time axis gets pushed out of the box and its labels clipped. */
+    .stats-chart-box table, .stats-chart-box td, .stats-chart-box th { width: auto; padding: 0; border: 0; border-collapse: separate; border-spacing: 0; table-layout: auto; text-align: left; vertical-align: middle; }
     .stats-chart-tooltip { position: absolute; z-index: 5; display: none; min-width: 170px; padding: 6px 9px; color: #314743; background: var(--stats-tooltip-bg); border: 1px solid var(--stats-tooltip-border); border-radius: 6px; box-shadow: 0 8px 20px rgba(24, 44, 39, .12); font: 11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; pointer-events: none; }
     .stats-chart-tooltip strong { display: block; margin-bottom: 2px; color: #176d59; }
     .stats-chart-foot { display: flex; align-items: center; gap: 14px; padding: 10px 14px 12px; color: #71827e; font-size: 11px; }
@@ -397,10 +403,11 @@
     .stats-chart-legend .dot { width: 8px; height: 8px; border-radius: 50%; }
     .stats-chart-legend .dot.is-ok { background: #4d8f79; }
     .stats-chart-legend .dot.is-err { background: #c04b45; }
-    .stats-donut { display: flex; align-items: center; gap: 22px; padding: 12px 14px 14px; }
+    .stats-donut { display: flex; align-items: center; justify-content: center; gap: 40px; padding: 12px 14px 14px; }
     .stats-donut-canvas { position: relative; width: 220px; height: 220px; flex: 0 0 220px; }
-    .stats-donut-legend { display: grid; flex: 1; min-width: 0; gap: 9px; }
-    .stats-legend-row { display: grid; grid-template-columns: 12px minmax(0, 1fr) 54px 48px; gap: 10px; align-items: center; min-width: 0; }
+    .stats-donut-legend { display: grid; flex: 0 1 300px; width: 100%; max-width: 300px; min-width: 0; gap: 9px; }
+    .stats-legend-row { display: grid; grid-template-columns: 12px auto auto auto; gap: 10px; align-items: center; min-width: 0; }
+    .stats-legend-row .stats-bar-count { margin-left: 18px; }
     .stats-legend-dot { width: 10px; height: 10px; border-radius: 3px; }
     .stats-bars { display: grid; gap: 9px; padding: 12px 14px 14px; }
     .stats-bar { display: grid; grid-template-columns: minmax(92px, 26%) minmax(0, 1fr) 54px 48px; gap: 10px; align-items: center; min-width: 0; }
@@ -454,7 +461,7 @@
     :root[data-theme="dark"] .stats-table-num.is-alert { color: #f3aaa6; }
     :root[data-theme="dark"] .stats-empty { color: #8ba198; }
     :root[data-theme="dark"] .stats-empty p { color: #a9bdb6; }
-    @media (max-width: 760px) { .stats-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stats-grid { grid-template-columns: 1fr; } .stats-chart-box { height: 220px; margin-right: 8px; margin-left: 8px; } .stats-donut { flex-direction: column; gap: 14px; } .stats-donut-canvas { width: 190px; height: 190px; flex-basis: 190px; } .stats-bar { grid-template-columns: minmax(70px, 24%) minmax(0, 1fr) 46px 42px; } .stats-panel-head { display: block; } .stats-panel-meta { display: block; margin-top: 2px; white-space: normal; } }
+    @media (max-width: 760px) { .stats-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stats-grid { grid-template-columns: 1fr; } .stats-chart-box { height: 220px; margin-right: 8px; margin-left: 8px; } .stats-donut { flex-direction: column; gap: 14px; } .stats-donut-canvas { width: 190px; height: 190px; flex-basis: 190px; } .stats-donut-legend { max-width: 100%; } .stats-bar { grid-template-columns: minmax(70px, 24%) minmax(0, 1fr) 46px 42px; } .stats-panel-head { display: block; } .stats-panel-meta { display: block; margin-top: 2px; white-space: normal; } }
   </style>
 </head>
 <body>
@@ -1324,6 +1331,7 @@
       if (sessionGestureActive) return;
       scheduleSessionReconcile();
     });
+    // ==== stats charts start ====
     const statsView = document.getElementById('stats-view');
     const statsCharts = document.getElementById('stats-charts');
     const statsMeta = document.querySelector('[data-stats-meta]');
@@ -1337,6 +1345,26 @@
     let statsChartsBuilt = false;
     const statsDayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const statsStatusPalette = ['--stats-donut-2xx', '--stats-donut-3xx', '--stats-donut-4xx', '--stats-donut-5xx', '--stats-donut-pending'];
+    // Heatmap cells arrive keyed by UTC hour/day (the gateway may run on a UTC
+    // host); shift them into the browser's own timezone, like the reference
+    // dashboard does.
+    function statsHeatCells(cells) {
+      const offsetHours = new Date().getTimezoneOffset() / -60;
+      return (cells || []).map(cell => {
+        const hour = (cell.hour + offsetHours + 24) % 24;
+        const day = cell.hour + offsetHours < 0 ? (cell.day + 6) % 7 : cell.hour + offsetHours >= 24 ? (cell.day + 1) % 7 : cell.day;
+        return { x: hour, y: day, count: cell.count };
+      });
+    }
+    // statsTimeLabel renders a unix timestamp in the operator's local time,
+    // 24-hour YYYY-MM-DD hh:mm:ss, for the crosshair tooltip and the
+    // time-axis crosshair label.
+    function statsTimeLabel(seconds) {
+      if (typeof seconds !== 'number' || !isFinite(seconds)) return '';
+      const d = new Date(seconds * 1000);
+      const pad = n => String(n).padStart(2, '0');
+      return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    }
     function statsPanelVisible() { const panel = document.getElementById('stats-panel'); return !panel || !panel.hidden; }
     function statsChartColors() {
       const s = getComputedStyle(document.documentElement);
@@ -1349,7 +1377,10 @@
       return 'rgb(' + Math.round(a[0] + (b[0] - a[0]) * ratio) + ',' + Math.round(a[1] + (b[1] - a[1]) * ratio) + ',' + Math.round(a[2] + (b[2] - a[2]) * ratio) + ')';
     }
     function destroyStatsCharts() {
-      if (timeChart) { timeChart.remove(); timeChart = null; timeHistogram = null; timeErrorLine = null; }
+      if (timeChart) {
+        if (timeChart.__statsRefit) { timeChart.__statsRefit.disconnect(); timeChart.__statsRefit = null; }
+        timeChart.remove(); timeChart = null; timeHistogram = null; timeErrorLine = null;
+      }
       if (heatmapChart) { heatmapChart.destroy(); heatmapChart = null; }
       if (statusChart) { statusChart.destroy(); statusChart = null; }
       ['stats-time-chart', 'stats-heatmap', 'stats-status'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
@@ -1359,14 +1390,38 @@
       const container = document.getElementById('stats-time-chart');
       if (!container || !window.LightweightCharts || !statsSeriesData) return;
       container.innerHTML = '';
-      const c = statsChartColors();
-      timeChart = LightweightCharts.createChart(container, {
-        autoSize: true, height: 260,
-        layout: { background: { type: 'solid', color: 'transparent' }, textColor: c.text, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontSize: 11 },
-        grid: { vertLines: { color: c.grid }, horzLines: { color: c.grid } },
-        rightPriceScale: { borderColor: c.grid },
-        timeScale: { borderColor: c.grid, rightOffset: 3 },
-        crosshair: { horzLine: { color: c.grid, labelBackgroundColor: '#176d59' }, vertLine: { color: c.grid, labelBackgroundColor: '#176d59' } },
+      const c = statsChartColors();      timeChart = LightweightCharts.createChart(container, {
+      autoSize: true, height: 260,
+      layout: { background: { type: 'solid', color: 'transparent' }, textColor: c.text, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontSize: 11 },
+      grid: { vertLines: { color: c.grid }, horzLines: { color: c.grid } },
+      rightPriceScale: { borderColor: c.grid },
+      timeScale: {
+      borderColor: c.grid,
+      rightOffset: 3,
+      // Without timeVisible the axis only ever renders dates, so an
+      // intraday zoom repeats the same "8日" on every tick. With it on,
+      // the scale picks labels that match the visible span (minutes for
+      // short ranges, hours, then dates across days).
+      timeVisible: true,
+      tickMarkFormatter: function (time, tickMarkType) {
+      if (typeof time !== 'number') return '';
+      const d = new Date(time * 1000);
+      const pad = n => String(n).padStart(2, '0');
+      const midnight = d.getHours() === 0 && d.getMinutes() === 0;
+      const isTime = tickMarkType === LightweightCharts.TickMarkType.Time || tickMarkType === LightweightCharts.TickMarkType.TimeWithSeconds;
+      if (isTime && !midnight) return pad(d.getHours()) + ':' + pad(d.getMinutes());
+      return (d.getMonth() + 1) + '/' + d.getDate();
+      },
+      },
+      // The label attached to the time axis at the crosshair position is
+      // formatted via localization.timeFormatter (timeScale has no such
+      // option; an unknown key there is silently ignored, leaving the
+      // default 'dd MMM 'yy' date-only label). Route it through the same
+      // local-time formatter as the tooltip so hover reads agree.
+      localization: {
+      timeFormatter: function (time) { return typeof time === 'number' ? statsTimeLabel(time) : ''; },
+      },
+      crosshair: { horzLine: { color: c.grid, labelBackgroundColor: '#176d59' }, vertLine: { color: c.grid, labelBackgroundColor: '#176d59' } },
       });
       timeHistogram = timeChart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'left' });
       timeHistogram.priceScale().applyOptions({ scaleMargins: { top: 0.06, bottom: 0.08 } });
@@ -1379,21 +1434,37 @@
         const bar = param.seriesData.get(timeHistogram);
         if (!bar) { tooltip.style.display = 'none'; return; }
         const errors = param.seriesData.get(timeErrorLine);
-        tooltip.innerHTML = '<strong>' + new Date(bar.time * 1000).toLocaleString() + '</strong>请求 ' + bar.value + (errors ? ' · 错误 ' + errors.value : '');
+        tooltip.innerHTML = '<strong>' + statsTimeLabel(bar.time) + '</strong>请求 ' + bar.value + (errors ? ' · 错误 ' + errors.value : '');
         tooltip.style.left = Math.min(param.point.x + 12, container.clientWidth - 190) + 'px';
         tooltip.style.top = Math.max(6, param.point.y - 42) + 'px';
         tooltip.style.display = 'block';
       });
       updateTimeChart();
       statsChartsBuilt = true;
+      // autoSize measures the container asynchronously, so fitContent inside
+      // buildTimeChart runs against a stale width and the bars end up
+      // squeezed into part of the canvas. Refit whenever the container's
+      // size actually changes (initial layout, tab reveal, window resize).
+      if ('ResizeObserver' in window) {
+        const refit = function () { if (timeChart) timeChart.timeScale().fitContent(); };
+        const observer = new ResizeObserver(refit);
+        observer.observe(container);
+        timeChart.__statsRefit = observer;
+      }
     }
     function updateTimeChart() {
       if (!timeChart || !statsSeriesData) return;
       const c = statsChartColors();
-      timeHistogram.setData(statsSeriesData.buckets.map(b => ({ time: b.t, value: b.count, color: 'rgba(' + c.okRgb + ',0.8)' })));
-      timeErrorLine.setData(statsSeriesData.buckets.filter(b => b.errors > 0).map(b => ({ time: b.t, value: b.errors })));
+      const buckets = statsSeriesData.buckets;
+      timeHistogram.setData(buckets.map(b => ({ time: b.t, value: b.count, color: 'rgba(' + c.okRgb + ',0.8)' })));
+      timeErrorLine.setData(buckets.filter(b => b.errors > 0).map(b => ({ time: b.t, value: b.errors })));
       timeErrorLine.applyOptions({ color: c.err });
-      timeChart.timeScale().fitContent();
+      // Only re-fit when new buckets extend past the right edge; re-fitting on
+      // every live tick would pan the view and cause visible jitter. Once the
+      // operator zooms or scrolls, the view stays put.
+      const visible = timeChart.timeScale().getVisibleRange();
+      const lastTime = buckets.length ? buckets[buckets.length - 1].t : 0;
+      if (!visible || !visible.to || lastTime > visible.to) timeChart.timeScale().fitContent();
       if (statsMeta) statsMeta.textContent = statsSeriesData.meta || '';
     }
     function buildHeatmap() {
@@ -1403,17 +1474,20 @@
       const canvas = document.createElement('canvas');
       holder.appendChild(canvas);
       const c = statsChartColors();
-      const cells = statsSeriesData.heatmap || [];
+      const cells = statsHeatCells(statsSeriesData.heatmap);
       const maxCount = cells.reduce((m, cell) => Math.max(m, cell.count), 0) || 1;
       const scaleFactor = 16 / Math.sqrt(maxCount);
       heatmapChart = new Chart(canvas, {
         type: 'bubble',
-        data: { datasets: [{ label: 'Requests', data: cells.map(cell => ({ x: cell.hour, y: cell.day, r: Math.min(Math.sqrt(cell.count) * scaleFactor, 24), count: cell.count })), backgroundColor: ctx => statsInterpolate((ctx.raw ? ctx.raw.count : 0) / maxCount, c.heatFrom, c.heatTo), borderWidth: 0 }] },
+        data: { datasets: [{ label: 'Requests', data: cells.map(cell => ({ x: cell.x, y: cell.y, r: Math.min(Math.sqrt(cell.count) * scaleFactor, 24), count: cell.count })), backgroundColor: ctx => statsInterpolate((ctx.raw ? ctx.raw.count : 0) / maxCount, c.heatFrom, c.heatTo), borderWidth: 0, clip: false }] },
         options: {
           responsive: true, maintainAspectRatio: false, animation: { duration: 250 },
+          // Padding plus axis headroom keep the largest bubbles from being
+          // sliced at the chart edges (the Sunday row sits at the top).
+          layout: { padding: { top: 24, right: 20, bottom: 12, left: 8 } },
           scales: {
-            x: { min: 0, max: 23, grid: { display: false }, title: { display: true, text: 'Hour of Day', color: c.text, font: { size: 10 } }, ticks: { stepSize: 1, color: c.text, font: { size: 9 }, callback: v => (Number.isInteger(v) ? v : '') } },
-            y: { min: -0.5, max: 6.5, reverse: true, grid: { display: false }, title: { display: true, text: 'Day of Week', color: c.text, font: { size: 10 } }, ticks: { stepSize: 1, color: c.text, font: { size: 9 }, callback: v => statsDayLabels[v] || '' } },
+            x: { min: -1, max: 24, grid: { display: false }, title: { display: true, text: 'Hour of Day', color: c.text, font: { size: 10 } }, ticks: { stepSize: 1, color: c.text, font: { size: 9 }, callback: v => (Number.isInteger(v) ? v : '') } },
+            y: { min: -1, max: 7, reverse: true, grid: { display: false }, title: { display: true, text: 'Day of Week', color: c.text, font: { size: 10 } }, ticks: { stepSize: 1, color: c.text, font: { size: 9 }, callback: v => statsDayLabels[v] || '' } },
           },
           plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => statsDayLabels[ctx.raw.y] + ' ' + ctx.raw.x + ':00 - ' + ctx.raw.count + ' requests' } } },
         },
@@ -1422,23 +1496,34 @@
     function updateHeatmap() {
       if (!heatmapChart || !statsSeriesData) return;
       const c = statsChartColors();
-      const cells = statsSeriesData.heatmap || [];
+      const cells = statsHeatCells(statsSeriesData.heatmap);
       const maxCount = cells.reduce((m, cell) => Math.max(m, cell.count), 0) || 1;
       const scaleFactor = 16 / Math.sqrt(maxCount);
-      heatmapChart.data.datasets[0].data = cells.map(cell => ({ x: cell.hour, y: cell.day, r: Math.min(Math.sqrt(cell.count) * scaleFactor, 24), count: cell.count }));
+      heatmapChart.data.datasets[0].data = cells.map(cell => ({ x: cell.x, y: cell.y, r: Math.min(Math.sqrt(cell.count) * scaleFactor, 24), count: cell.count }));
       heatmapChart.data.datasets[0].backgroundColor = ctx => statsInterpolate((ctx.raw ? ctx.raw.count : 0) / maxCount, c.heatFrom, c.heatTo);
-      heatmapChart.update();
+      // 'none' skips the animation: re-animating on every SSE frame is what
+      // made the charts jitter while requests stream in.
+      heatmapChart.update('none');
     }
     function renderStatusLegend(statuses, colors, total) {
       const legend = document.getElementById('stats-status-legend');
       if (!legend) return;
-      legend.innerHTML = '';
+      // Reuse existing rows and update values in place, so live SSE frames do
+      // not tear down and rebuild the legend DOM (another jitter source).
+      while (legend.children.length > statuses.length) legend.lastChild.remove();
       statuses.forEach((status, i) => {
         const pct = total ? Math.round(status.count / total * 100) : 0;
-        const row = document.createElement('div');
-        row.className = 'stats-legend-row';
-        row.innerHTML = '<i class="stats-legend-dot" style="background:' + colors[i] + '"></i><span class="stats-bar-name">' + status.name + '</span><span class="stats-bar-count">' + status.count + '</span><span class="stats-bar-pct">' + pct + '%</span>';
-        legend.append(row);
+        let row = legend.children[i];
+        if (!row) {
+          row = document.createElement('div');
+          row.className = 'stats-legend-row';
+          row.innerHTML = '<i class="stats-legend-dot"></i><span class="stats-bar-name"></span><span class="stats-bar-count"></span><span class="stats-bar-pct"></span>';
+          legend.append(row);
+        }
+        row.querySelector('.stats-legend-dot').style.background = colors[i];
+        row.querySelector('.stats-bar-name').textContent = status.name;
+        row.querySelector('.stats-bar-count').textContent = String(status.count);
+        row.querySelector('.stats-bar-pct').textContent = pct + '%';
       });
     }
     function buildStatusChart() {
@@ -1470,7 +1555,7 @@
       statusChart.data.labels = statuses.map(x => x.name);
       statusChart.data.datasets[0].data = statuses.map(x => x.count);
       statusChart.data.datasets[0].backgroundColor = colors;
-      statusChart.update();
+      statusChart.update('none');
       renderStatusLegend(statuses, colors, total);
     }
     function renderStatsCharts() {
@@ -1501,6 +1586,8 @@
       if (win !== statsWindow) { statsWindow = win; connectStatsStream(); }
     }
     function connectStatsStream() {
+      // The static preview inlines all windows; there is no SSE endpoint.
+      if (typeof STATS_WINDOWS !== 'undefined') return;
       if (statsEvents) statsEvents.close();
       statsEvents = new EventSource('/stats/stream?window=' + statsWindow);
       statsEvents.addEventListener('stats', event => {
@@ -1518,11 +1605,20 @@
       const win = button.dataset.statsWindowButton;
       if (win === statsWindow) return;
       statsWindow = win;
-      fetch('/stats?window=' + win).then(response => response.text()).then(applyStatsHTML).catch(() => {});
+      if (typeof STATS_WINDOWS !== 'undefined' && STATS_WINDOWS[win]) {
+        applyStatsHTML(STATS_WINDOWS[win]);
+      } else {
+        fetch('/stats?window=' + win).then(response => response.text()).then(applyStatsHTML).catch(() => {});
+      }
       connectStatsStream();
     });
-    fetch('/stats').then(response => response.text()).then(applyStatsHTML).catch(() => {});
-    connectStatsStream();
+    if (typeof STATS_WINDOWS !== 'undefined') {
+      applyStatsHTML(STATS_WINDOWS.all);
+    } else {
+      fetch('/stats').then(response => response.text()).then(applyStatsHTML).catch(() => {});
+      connectStatsStream();
+    }
+    // ==== stats charts end ====
     setTheme(document.documentElement.dataset.theme || 'light');
     const initialView = viewFromHash();
     if (initialView) applyTelemetryView(initialView);

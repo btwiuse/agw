@@ -471,13 +471,10 @@ func statusBreakdown(entries []statsEntry) []statsBar {
 		{"3xx 重定向", "status-3xx"},
 		{"4xx 客户端错误", "status-4xx"},
 		{"5xx 服务端错误", "status-5xx"},
-		{"处理中", "status-pending"},
 	}
-	counts := map[string]int64{"2xx 成功": 0, "3xx 重定向": 0, "4xx 客户端错误": 0, "5xx 服务端错误": 0, "处理中": 0}
+	counts := map[string]int64{"2xx 成功": 0, "3xx 重定向": 0, "4xx 客户端错误": 0, "5xx 服务端错误": 0}
 	for _, entry := range entries {
 		switch {
-		case entry.status == 0:
-			counts["处理中"]++
 		case entry.status >= 500:
 			counts["5xx 服务端错误"]++
 		case entry.status >= 400:
@@ -507,14 +504,12 @@ func statusBreakdown(entries []statsEntry) []statsBar {
 func stateBreakdown(entries []statsEntry) []statsBar {
 	labels := map[string]string{
 		"completed":     "完成",
-		"streaming":     "流式传输中",
-		"connecting":    "连接中",
 		"client closed": "客户端断开",
 		"timed out":     "超时",
 		"interrupted":   "中断",
 	}
 	classes := map[string]string{
-		"completed": "is-completed", "streaming": "is-streaming", "connecting": "is-connecting",
+		"completed":     "is-completed",
 		"client closed": "is-warning", "timed out": "is-error", "interrupted": "is-error",
 	}
 	counts := make(map[string]int64)
@@ -667,16 +662,18 @@ func buildSeriesJSON(entries []statsEntry, buckets []statsBucket, statuses []sta
 	return string(data)
 }
 
-// heatmapCells aggregates requests into the hour-of-day × weekday grid using
-// local time, mirroring the activity heatmap of the reference dashboard.
+// heatmapCells aggregates requests into the hour-of-day × weekday grid. The
+// grid is keyed by UTC hour/day so the browser can shift it into the user's
+// own timezone (the dashboard may run on a UTC host while the operator is in
+// another zone); this mirrors the activity heatmap of the reference dashboard.
 func heatmapCells(entries []statsEntry) []statsHeatCell {
 	counts := make(map[[2]int]int64)
 	for _, entry := range entries {
 		if entry.started.IsZero() {
 			continue
 		}
-		local := entry.started.Local()
-		counts[[2]int{local.Hour(), int(local.Weekday())}]++
+		utc := entry.started.UTC()
+		counts[[2]int{utc.Hour(), int(utc.Weekday())}]++
 	}
 	cells := make([]statsHeatCell, 0, len(counts))
 	for key, count := range counts {

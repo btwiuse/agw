@@ -2224,8 +2224,16 @@ func TestStatsAggregation(t *testing.T) {
 	if len(series.Buckets) != 3 || len(series.Statuses) != 2 || len(series.Heatmap) == 0 {
 		t.Fatalf("series payload = %#v", series)
 	}
-	if series.Heatmap[0].Hour < 0 || series.Heatmap[0].Hour > 23 || series.Heatmap[0].Day < 0 || series.Heatmap[0].Day > 6 {
-		t.Fatalf("heatmap cell out of range: %#v", series.Heatmap[0])
+	// Heatmap cells are keyed by UTC hour/day so the browser can shift them
+	// into the operator's own timezone.
+	utcBase := base.UTC()
+	for _, cell := range series.Heatmap {
+		if cell.Hour < 0 || cell.Hour > 23 || cell.Day < 0 || cell.Day > 6 {
+			t.Fatalf("heatmap cell out of range: %#v", cell)
+		}
+		if cell.Hour != utcBase.Hour() || cell.Day != int(utcBase.Weekday()) {
+			t.Fatalf("heatmap cell should use UTC hour/day, got %d:%d want %d:%d", cell.Hour, cell.Day, utcBase.Hour(), utcBase.Weekday())
+		}
 	}
 }
 
@@ -2435,6 +2443,34 @@ func TestStatsBackfillsFromSessionFiles(t *testing.T) {
 	defer restarted.close()
 	if got := restarted.stats("all").Requests; got != 1 {
 		t.Fatalf("restart after backfill should keep one request, got %d", got)
+	}
+}
+
+func TestStatsExcludesInFlightRequests(t *testing.T) {
+	hub := newSessionHub()
+	defer hub.close()
+	tracked := hub.start(httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+	tracked.connected(200)
+	tracked.setUpstream("openai")
+	tracked.setRequestBody("application/json", []byte(`{"model":"gpt-5"}`))
+	if got := hub.stats("all").Requests; got != 0 {
+		t.Fatalf("in-flight request must not appear in stats, got %d", got)
+	}
+	if len(hub.history) != 0 {
+		t.Fatalf("in-flight request must not be recorded in history, got %d entries", len(hub.history))
+	}
+	tracked.complete(200, 1024, nil)
+	view := hub.stats("all")
+	if view.Requests != 1 || view.Errors != 0 {
+		t.Fatalf("completed request should appear once, got %#v", view)
+	}
+	if len(view.Statuses) != 1 || view.Statuses[0].Name != "2xx 成功" {
+		t.Fatalf("status breakdown after completion = %#v", view.Statuses)
+	}
+	for _, status := range view.Statuses {
+		if status.Name == "处理中" {
+			t.Fatalf("in-flight status class must never be rendered")
+		}
 	}
 }
 

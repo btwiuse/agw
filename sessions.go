@@ -245,7 +245,6 @@ func (h *sessionHub) start(r *http.Request) *trackedSession {
 		record.Requests = record.Requests[len(record.Requests)-maxRequestsPerSession:]
 		h.removePayloads(pruned)
 	}
-	h.syncStatsEntry(id, request)
 	h.publishLocked()
 	h.evictLocked()
 	h.saveRecordLocked(id)
@@ -394,7 +393,12 @@ func (h *sessionHub) updateRequest(tracked *trackedSession, update func(*session
 			if !wasFinal && isFinalState(request.State) {
 				h.persistStatsEntryLocked(record.ID, request)
 			}
-			h.syncStatsEntry(record.ID, request)
+			// Only completed requests enter the stats history; tracking the
+			// in-flight state would repaint the dashboard on every streamed
+			// chunk and make the UI jitter.
+			if isFinalState(request.State) {
+				h.syncStatsEntry(record.ID, request)
+			}
 			h.publishLocked()
 			h.saveRecordLocked(tracked.sessionID)
 			return
@@ -416,7 +420,9 @@ func (h *sessionHub) captureResponse(tracked *trackedSession, data []byte) {
 		request.Bytes += len(data)
 		request.ResponseBytes += int64(len(data))
 		record.LastSeen = time.Now()
-		h.syncStatsEntry(record.ID, request)
+		if isFinalState(request.State) {
+			h.syncStatsEntry(record.ID, request)
+		}
 		payload := request.ResponsePayload
 		shouldPublish := request.LastPreview.IsZero() || time.Since(request.LastPreview) >= responsePreviewInterval
 		if shouldPublish {
