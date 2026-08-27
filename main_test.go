@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -2798,5 +2799,73 @@ func TestConfigSavePreservesPricing(t *testing.T) {
 	}
 	if len(reloaded.Pricing) != 1 || reloaded.Pricing[0].ModelPrefix != "claude-3" {
 		t.Fatalf("pricing should be replaceable via YAML save: %#v", reloaded.Pricing)
+	}
+}
+
+// failWriter is a ResponseWriter whose writes always fail, simulating a client
+// that hung up mid-response.
+type failWriter struct {
+	status int
+	wrote  bool
+}
+
+func (f *failWriter) Header() http.Header         { return http.Header{} }
+func (f *failWriter) WriteHeader(status int)      { f.status = status; f.wrote = true }
+func (f *failWriter) Write(p []byte) (int, error) { return 0, errors.New("connection reset by peer") }
+func (f *failWriter) Flush()                      {}
+
+func TestAccessWriterRecordsFirstWriteError(t *testing.T) {
+	writer := &accessWriter{ResponseWriter: &failWriter{}}
+	if n, err := writer.Write([]byte("x")); err == nil || n != 0 {
+		t.Fatalf("Write = %d, %v; want 0 and an error", n, err)
+	}
+	if writer.err == nil {
+		t.Fatal("accessWriter should record the first failed write")
+	}
+	// A later successful write must not clear the recorded failure.
+	writer = &accessWriter{ResponseWriter: httptest.NewRecorder()}
+	_, _ = writer.Write([]byte("ok"))
+	if writer.err != nil {
+		t.Fatalf("successful write should leave err nil, got %v", writer.err)
+	}
+}
+
+// TestRequestWriteFailureClassifiesInterrupted pins the terminal-state
+// classification to the client write outcome: a response whose bytes could
+// not reach the client is "interrupted", never "completed". (The reverse
+// regression — a fully delivered response staying "completed" when the client
+// closes right after reading it — is the behavior of every successful
+// TestStatsTracksRequestsThroughProxy-style request.)
+func TestRequestWriteFailureClassifiesInterrupted(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer upstream.Close()
+
+	hub := newSessionHub()
+	defer hub.close()
+	proxy := &Proxy{
+		Upstreams: []Upstream{{URL: upstream.URL, Authorization: &Authorization{Type: "none"}}},
+		Client:    http.DefaultClient,
+		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Sessions:  hub,
+	}
+	handler := requestLogger(proxy.Logger, proxy)
+	writer := &failWriter{}
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-5"}`))
+	request.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(writer, request)
+
+	view := hub.stats("all")
+	if view.Requests != 1 || view.Errors != 1 {
+		t.Fatalf("failed-write request should count as an error: %#v", view)
+	}
+	states := make(map[string]int64)
+	for _, state := range view.States {
+		states[state.Name] = state.Count
+	}
+	if states["中断"] != 1 || states["完成"] != 0 {
+		t.Fatalf("failed-write request should be interrupted, got %#v", view.States)
 	}
 }

@@ -10,8 +10,14 @@ import (
 
 type accessWriter struct {
 	http.ResponseWriter
-	status        int
-	bytes         int
+	status int
+	bytes  int
+	// err records the first failed client write. A write failure is the only
+	// reliable signal that the client hung up: reading r.Context().Err() after
+	// the handler returns races with the client closing the connection right
+	// after receiving a complete response (curl does exactly that), which
+	// misclassifies delivered requests as "client closed".
+	err           error
 	onWriteHeader func(int)
 }
 
@@ -32,6 +38,9 @@ func (w *accessWriter) Write(data []byte) (int, error) {
 	}
 	n, err := w.ResponseWriter.Write(data)
 	w.bytes += n
+	if err != nil && w.err == nil {
+		w.err = err
+	}
 	return n, err
 }
 
@@ -65,7 +74,21 @@ func requestLogger(logger Logger, next http.Handler) http.Handler {
 			status = http.StatusOK
 		}
 		if session != nil {
-			session.complete(status, writer.bytes, r.Context().Err())
+			// Classify the terminal state from the client write outcome, not
+			// from a context read after the handler returned. By the time the
+			// handler is back, the client may already have closed the
+			// connection after a fully delivered response, which would turn a
+			// successful request into a spurious "client closed". A failed
+			// write proves the hangup happened during the response, and the
+			// context error read then is stable (cancellation is monotonic).
+			var ctxErr error
+			if writer.err != nil {
+				ctxErr = r.Context().Err()
+				if ctxErr == nil {
+					ctxErr = writer.err
+				}
+			}
+			session.complete(status, writer.bytes, ctxErr)
 		}
 	})
 }
