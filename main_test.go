@@ -2006,7 +2006,7 @@ func TestConfigPageDefaultsToDarkSessionJournal(t *testing.T) {
 		t.Fatalf("config page Cache-Control = %q, want no-store", got)
 	}
 	content := recorder.Body.String()
-	for _, expected := range []string{"agw-theme", "'dark'", "theme-toggle", "telemetry-tabbar", "SSE connected", "sessions-panel", "logs-panel", "aria-selected=\"true\"", "Compatible AppSelectors", "selector-table-head", ">Rules<", "updateSelectorSummary", "match-value-field", "match-value-actions", "selector-no-rules", "No rules - matches all requests", ">Actions<", "data-selector", "data-drop-zone", "drop-indicator", "松手后放到这里", "data-duplicate-row", "data-duplicate-selector", "session-table-head", ">Selector<", ">Upstream<", ">Model<", ">Send<", ">Receive<", ">Duration<", "data-payload-modal", "data-log-pretty", "data-log-connection", "yaml-config", "data-config-modal", "data-config-yaml", "data-config-yaml-merged", "secrets-config", "data-secrets-modal", "data-secrets-yaml", "data-session-count", "data-selector-tab-count", "data-upstream-tab-count", "data-log-count", `class="tab-count"`, `class="add-row"`, `id="add-selector"`, `id="routing-tab"`, `id="selectors-tab"`, `data-telemetry-tab="routing"`, `data-telemetry-tab="selectors"`, `id="routing-panel" role="tabpanel" aria-labelledby="routing-tab" hidden`, `id="pricing-tab"`, `data-telemetry-tab="pricing"`, `id="pricing-panel" role="tabpanel" aria-labelledby="pricing-tab" hidden`, "pricing-save", "pricing-table", "/config/pricing", "data-pricing-prefix", "data-pricing-cache-read", `id="selectors-panel" role="tabpanel" aria-labelledby="selectors-tab"`, `id="sessions-panel" role="tabpanel" aria-labelledby="sessions-tab" hidden`, "viewFromHash", "hashchange", "location.hash", "scheduleSessionReconcile", "sessionGestureActive", "lastSessionHTML", "data-tab-menu-button", `class="tab-menu-button"`, "closeTabMenu", "hamburger-mode", "updateTabLayoutMode", `rel="manifest"`, "og:title", `name="theme-color"`, `rel="icon" href="/favicon.ico"`, "apple-touch-icon", "icon-512.png", `>AppSelector<`, `>Routing<`, `>Sessions<`, `>Logs<`, `data-rule-type-option="method"`, `id="stats-tab"`, `data-telemetry-tab="stats"`, `id="stats-panel"`, `id="stats-view"`, "EventSource('/stats/stream?window=' + statsWindow)", "lightweight-charts", "chart.js", "stats-time-chart", "stats-heatmap", "stats-status", "stats-charts-bars", "data-stats-meta", "stats-donut", "stats-chart-tooltip", "stats-export", "/stats/export", "stats-panel-head-right"} {
+	for _, expected := range []string{"agw-theme", "'dark'", "theme-toggle", "telemetry-tabbar", "SSE connected", "sessions-panel", "logs-panel", "aria-selected=\"true\"", "Compatible AppSelectors", "selector-table-head", ">Rules<", "updateSelectorSummary", "match-value-field", "match-value-actions", "selector-no-rules", "No rules - matches all requests", ">Actions<", "data-selector", "data-drop-zone", "drop-indicator", "松手后放到这里", "data-duplicate-row", "data-duplicate-selector", "session-table-head", ">Selector<", ">Upstream<", ">Model<", ">Send<", ">Receive<", ">Duration<", "data-payload-modal", "data-log-pretty", "data-log-connection", "yaml-config", "data-config-modal", "data-config-yaml", "data-config-yaml-merged", "secrets-config", "data-secrets-modal", "data-secrets-yaml", "data-session-count", "data-selector-tab-count", "data-upstream-tab-count", "data-log-count", `class="tab-count"`, `class="add-row"`, `id="add-selector"`, `id="routing-tab"`, `id="selectors-tab"`, `data-telemetry-tab="routing"`, `data-telemetry-tab="selectors"`, `id="routing-panel" role="tabpanel" aria-labelledby="routing-tab" hidden`, `id="pricing-tab"`, `data-telemetry-tab="pricing"`, `id="pricing-panel" role="tabpanel" aria-labelledby="pricing-tab" hidden`, "pricing-table", "/config/pricing", "data-pricing-prefix", "data-pricing-cache-read", "pricing-foot", `id="selectors-panel" role="tabpanel" aria-labelledby="selectors-tab"`, `id="sessions-panel" role="tabpanel" aria-labelledby="sessions-tab" hidden`, "viewFromHash", "hashchange", "location.hash", "scheduleSessionReconcile", "sessionGestureActive", "lastSessionHTML", "data-tab-menu-button", `class="tab-menu-button"`, "closeTabMenu", "hamburger-mode", "updateTabLayoutMode", `rel="manifest"`, "og:title", `name="theme-color"`, `rel="icon" href="/favicon.ico"`, "apple-touch-icon", "icon-512.png", `>AppSelector<`, `>Routing<`, `>Sessions<`, `>Logs<`, `data-rule-type-option="method"`, `id="stats-tab"`, `data-telemetry-tab="stats"`, `id="stats-panel"`, `id="stats-view"`, "EventSource('/stats/stream?window=' + statsWindow)", "lightweight-charts", "chart.js", "stats-time-chart", "stats-heatmap", "stats-status", "stats-charts-bars", "data-stats-meta", "stats-donut", "stats-chart-tooltip", "stats-export", "/stats/export", "stats-panel-head-right"} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("config page missing %q", expected)
 		}
@@ -2803,6 +2803,25 @@ func TestConfigSavePreservesPricing(t *testing.T) {
 	}
 	if len(reloaded.Pricing) != 1 || reloaded.Pricing[0].ModelPrefix != "claude-3" {
 		t.Fatalf("pricing should be replaceable via YAML save: %#v", reloaded.Pricing)
+	}
+	// The browser form now submits pricing rows with the rest of the config;
+	// a submitted table replaces the stored one (this is how the Pricing tab
+	// saves through the global save button).
+	body = `{"debug":false,"appSelectors":[],"upstreams":[{"name":"default","url":"https://example.com/v1","authorization":{"type":"none"}}],"pricing":[{"modelPrefix":"gpt-4o","inputPer1M":2.5,"outputPer1M":10,"cacheReadPer1M":1.25}]}`
+	recorder = httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/config", strings.NewReader(body)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("browser save with pricing status = %d %q", recorder.Code, recorder.Body.String())
+	}
+	reloaded, err = loadSettings(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.Pricing) != 1 || reloaded.Pricing[0].ModelPrefix != "gpt-4o" || reloaded.Pricing[0].CacheReadPer1M != 1.25 {
+		t.Fatalf("browser save should replace pricing: %#v", reloaded.Pricing)
+	}
+	if len(reloaded.Upstreams) != 1 {
+		t.Fatalf("browser save should keep upstreams: %#v", reloaded.Upstreams)
 	}
 }
 

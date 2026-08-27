@@ -425,11 +425,12 @@
     .stats-token-legend .dot.is-token-out { background: var(--stats-chart-token-out); }
     :root[data-theme="dark"] .stats-token-summary strong { color: #dce9e4; }
     :root[data-theme="dark"] .stats-token-bar { background: #22332e; }
-    .pricing-toolbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; flex-wrap: wrap; }
-    .pricing-hint { color: #82928e; font-size: 11px; flex: 1 1 auto; min-width: 200px; }
-    .pricing-rate { width: 92px; }
+    .pricing-table { table-layout: auto; }
+    .pricing-prefix { width: 260px; min-width: 220px; }
+    .pricing-rate { width: 84px; }
     .pricing-empty { padding: 16px 14px; color: #82928e; font-size: 12px; text-align: center; }
-    :root[data-theme="dark"] .pricing-hint, :root[data-theme="dark"] .pricing-empty { color: #879e96; }
+    .pricing-foot { padding: 0 14px 12px; color: #82928e; font-size: 11px; }
+    :root[data-theme="dark"] .pricing-foot, :root[data-theme="dark"] .pricing-empty { color: #879e96; }
     .stats-donut { display: flex; align-items: center; justify-content: center; gap: 40px; padding: 12px 14px 14px; }
     .stats-donut-canvas { position: relative; width: 220px; height: 220px; flex: 0 0 220px; }
     .stats-donut-legend { display: grid; flex: 0 1 340px; width: 100%; max-width: 340px; min-width: 0; gap: 9px; }
@@ -523,7 +524,7 @@
         </table>
       </div>
       </div>
-      <div class="telemetry-panel" id="pricing-panel" role="tabpanel" aria-labelledby="pricing-tab" hidden><div class="pricing-toolbar"><span class="pricing-hint">单价按每 100 万 token 美元计；缓存读 / 缓存写仅对 Anthropic 风格用量单独计价，留空则回退到输入价。保存后 Stats 会立即按新价格重算历史成本。</span><span class="pricing-status" data-pricing-status></span><button class="icon-button" type="button" title="刷新定价" aria-label="刷新定价" hx-get="/config/pricing" hx-target="#pricing-table" hx-swap="innerHTML"><i data-lucide="refresh-cw"></i></button><button class="icon-button save" type="button" id="pricing-save" title="保存定价" aria-label="保存定价"><i data-lucide="save"></i></button></div><div class="table-scroll"><table><thead><tr><th class="name" scope="col">模型前缀</th><th scope="col">输入 $/1M</th><th scope="col">输出 $/1M</th><th scope="col">缓存读 $/1M</th><th scope="col">缓存写 $/1M</th><th class="row-actions" scope="col">Actions</th></tr></thead><tbody id="pricing-table" hx-get="/config/pricing" hx-trigger="load" hx-swap="innerHTML"><tr><td colspan="6">正在加载定价...</td></tr></tbody><tfoot><tr><td colspan="6" class="add-row-cell"><button class="add-row" type="button" id="add-pricing" title="新增定价规则" aria-label="新增定价规则"><i data-lucide="plus"></i>添加定价规则</button></td></tr></tfoot></table></div></div>
+      <div class="telemetry-panel" id="pricing-panel" role="tabpanel" aria-labelledby="pricing-tab" hidden><div class="table-scroll"><table class="pricing-table"><thead><tr><th class="name" scope="col">模型前缀</th><th scope="col">输入 $/1M</th><th scope="col">输出 $/1M</th><th scope="col">缓存读 $/1M</th><th scope="col">缓存写 $/1M</th><th class="row-actions" scope="col">Actions</th></tr></thead><tbody id="pricing-table" hx-get="/config/pricing" hx-trigger="load" hx-swap="innerHTML"><tr><td colspan="6">正在加载定价...</td></tr></tbody><tfoot><tr><td colspan="6" class="add-row-cell"><button class="add-row" type="button" id="add-pricing" title="新增定价规则" aria-label="新增定价规则"><i data-lucide="plus"></i>添加定价规则</button></td></tr></tfoot></table></div><div class="pricing-foot">单价按每 100 万 token 美元计；缓存读 / 缓存写仅对 Anthropic 风格用量单独计价，留空则回退到输入价。保存后 Stats 会立即按新价格重算历史成本。</div></div>
       <div class="telemetry-panel" id="selectors-panel" role="tabpanel" aria-labelledby="selectors-tab">
       <div class="selector-table-head" role="row"><span>AppSelector</span><span>Rules</span><span>Actions</span></div>
       <div id="selector-list" class="selector-list" data-drop-zone>
@@ -1154,22 +1155,27 @@
       }
       status.className = ''; status.textContent = '保存中'; saveButton.disabled = true;
       try {
-        const debugToggle = document.getElementById('debug-toggle');
-        const response = await fetch('/config', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({debug: debugToggle ? debugToggle.checked : false, appSelectors, upstreams})});
+        const pricing = [...pricingTable.querySelectorAll('tr[data-pricing-row]')].map(row => ({
+        modelPrefix: row.querySelector('[data-pricing-prefix]').value.trim(),
+        inputPer1M: Number(row.querySelector('[data-pricing-input]').value || 0),
+        outputPer1M: Number(row.querySelector('[data-pricing-output]').value || 0),
+        cacheReadPer1M: Number(row.querySelector('[data-pricing-cache-read]').value || 0),
+        cacheWritePer1M: Number(row.querySelector('[data-pricing-cache-write]').value || 0),
+      })).filter(rule => rule.modelPrefix !== '');
+      const debugToggle = document.getElementById('debug-toggle');
+        const response = await fetch('/config', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({debug: debugToggle ? debugToggle.checked : false, appSelectors, upstreams, pricing})});
         if (!response.ok) throw new Error(await response.text());
         const result = await response.json().catch(() => null);
         if (result && result.externalized) mergeExternalizedSecrets(result.externalized);
-        status.className = 'success'; status.textContent = '已保存'; htmx.trigger(table, 'load');
+        status.className = 'success'; status.textContent = '已保存'; htmx.trigger(table, 'load'); if (pricingTable) htmx.trigger(pricingTable, 'load');
       } catch (error) { status.className = 'error'; status.textContent = error.message || '保存失败'; }
       finally { saveButton.disabled = false; }
     });
     document.getElementById('add-upstream').addEventListener('click', function () { table.insertAdjacentHTML('beforeend', newRow()); ensureDuplicateButtons(table); renderMultiSelect(table); renderIcons(table); updateSummary(); });
     document.getElementById('add-selector').addEventListener('click', function () { const empty = selectorList.querySelector('.selector-empty'); if (empty) empty.remove(); selectorList.insertAdjacentHTML('beforeend', selectorRow()); ensureDuplicateButtons(selectorList); renderIcons(selectorList); updateSelectorSummary(); renderMultiSelect(document); });
     const pricingTable = document.getElementById('pricing-table');
-    const pricingSave = document.getElementById('pricing-save');
-    const pricingStatus = document.querySelector('[data-pricing-status]');
     function pricingRow(prefix, input, output, cacheRead, cacheWrite) {
-      return '<tr data-pricing-row><td><input class="field-input" data-pricing-prefix value="' + (prefix || '') + '" placeholder="gpt-4o" aria-label="模型前缀"></td>' +
+      return '<tr data-pricing-row><td><input class="field-input pricing-prefix" data-pricing-prefix value="' + (prefix || '') + '" placeholder="gpt-4o" aria-label="模型前缀"></td>' +
         '<td><input class="field-input pricing-rate" type="number" min="0" step="any" inputmode="decimal" data-pricing-input value="' + (input || '') + '" aria-label="输入单价 ($/1M)"></td>' +
         '<td><input class="field-input pricing-rate" type="number" min="0" step="any" inputmode="decimal" data-pricing-output value="' + (output || '') + '" aria-label="输出单价 ($/1M)"></td>' +
         '<td><input class="field-input pricing-rate" type="number" min="0" step="any" inputmode="decimal" data-pricing-cache-read value="' + (cacheRead || '') + '" aria-label="缓存读单价 ($/1M)"></td>' +
@@ -1189,24 +1195,6 @@
         if (!pricingTable.querySelector('[data-pricing-row]')) pricingTable.insertAdjacentHTML('beforeend', '<tr><td colspan="6" class="pricing-empty">未配置定价表：Stats 页不会显示成本列。添加一行并保存后，历史成本会立即按新价格重新计算。</td></tr>');
         return;
       }
-    });
-    pricingSave.addEventListener('click', async function () {
-      const rows = [...pricingTable.querySelectorAll('tr[data-pricing-row]')].map(row => ({
-        modelPrefix: row.querySelector('[data-pricing-prefix]').value.trim(),
-        inputPer1M: Number(row.querySelector('[data-pricing-input]').value || 0),
-        outputPer1M: Number(row.querySelector('[data-pricing-output]').value || 0),
-        cacheReadPer1M: Number(row.querySelector('[data-pricing-cache-read]').value || 0),
-        cacheWritePer1M: Number(row.querySelector('[data-pricing-cache-write]').value || 0),
-      })).filter(rule => rule.modelPrefix !== '');
-      const invalid = rows.find(rule => [rule.inputPer1M, rule.outputPer1M, rule.cacheReadPer1M, rule.cacheWritePer1M].some(rate => !isFinite(rate) || rate < 0));
-      if (invalid) { pricingStatus.textContent = '无效的单价（需 ≥ 0）'; return; }
-      pricingStatus.textContent = '保存中…'; pricingSave.disabled = true;
-      try {
-        const response = await fetch('/config/pricing', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({pricing: rows})});
-        if (!response.ok) throw new Error(await response.text());
-        pricingStatus.textContent = '已保存'; htmx.trigger(pricingTable, 'load');
-      } catch (error) { pricingStatus.textContent = error.message || '保存失败'; }
-      finally { pricingSave.disabled = false; }
     });
     document.body.addEventListener('htmx:afterSwap', function (event) { if (event.target === pricingTable) renderIcons(pricingTable); });
     document.getElementById('yaml-config').addEventListener('click', openConfigModal);
@@ -1343,7 +1331,7 @@
       if (event.key === 'End') next = tabs.length - 1;
       event.preventDefault(); setTelemetryView(tabs[next].dataset.telemetryTab, true);
     });
-    document.body.addEventListener('htmx:afterSwap', function (event) { if (event.target === table) { ensureDuplicateButtons(table); renderMultiSelect(table); applyLocalSecrets(table); renderIcons(table); updateSummary(); } });
+    document.body.addEventListener('htmx:afterSwap', function (event) { if (event.target === table) { ensureDuplicateButtons(table); renderMultiSelect(table); applyLocalSecrets(table); renderIcons(table); updateSummary(); if (pricingTable) htmx.trigger(pricingTable, 'load'); } });
     const logStream = document.getElementById('log-stream');
     const logPretty = document.querySelector('[data-log-pretty]');
     const logConnection = document.querySelector('[data-log-connection]');

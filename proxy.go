@@ -1467,6 +1467,11 @@ func (p *Proxy) updateConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to save config: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Repaint open dashboards after config-only changes (e.g. a pricing edit
+	// saved from the top bar) so stats re-render without waiting for traffic.
+	if p.Sessions != nil {
+		p.Sessions.publish()
+	}
 	// Tell the browser which keys were newly assigned so it can persist the
 	// key -> value pairs locally. The values are the very ones the browser
 	// just submitted; this is not a secrets read-back API.
