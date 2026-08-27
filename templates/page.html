@@ -390,6 +390,10 @@
     .stats-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 11px 14px 0; }
     .stats-panel-head h3 { margin: 0; color: #213633; font-size: 13px; font-weight: 700; }
     .stats-panel-meta { color: #82928e; font-size: 11px; white-space: nowrap; }
+    .stats-panel-head-right { display: inline-flex; align-items: baseline; gap: 10px; }
+    .stats-export { display: inline-flex; align-items: center; gap: 4px; color: #82928e; font-size: 11px; text-decoration: none; white-space: nowrap; }
+    .stats-export:hover { color: #176d59; }
+    .stats-export svg { width: 12px; height: 12px; }
     .stats-chart-box { position: relative; height: 260px; margin: 12px 14px 0; }
     .stats-chart-box canvas { border-radius: 4px; }
     /* lightweight-charts renders its panes as an internal table; the app's
@@ -407,9 +411,8 @@
     .stats-chart-legend .dot.is-p95 { background: var(--stats-chart-p95); }
     .stats-donut { display: flex; align-items: center; justify-content: center; gap: 40px; padding: 12px 14px 14px; }
     .stats-donut-canvas { position: relative; width: 220px; height: 220px; flex: 0 0 220px; }
-    .stats-donut-legend { display: grid; flex: 0 1 300px; width: 100%; max-width: 300px; min-width: 0; gap: 9px; }
-    .stats-legend-row { display: grid; grid-template-columns: 12px auto auto auto; gap: 10px; align-items: center; min-width: 0; }
-    .stats-legend-row .stats-bar-count { margin-left: 18px; }
+    .stats-donut-legend { display: grid; flex: 0 1 340px; width: 100%; max-width: 340px; min-width: 0; gap: 9px; }
+    .stats-legend-row { display: grid; grid-template-columns: 12px minmax(92px, 26%) minmax(0, 1fr) 54px 48px; gap: 10px; align-items: center; min-width: 0; }
     .stats-legend-dot { width: 10px; height: 10px; border-radius: 3px; }
     .stats-bars { display: grid; gap: 9px; padding: 12px 14px 14px; }
     .stats-bar { display: grid; grid-template-columns: minmax(92px, 26%) minmax(0, 1fr) 54px 48px; gap: 10px; align-items: center; min-width: 0; }
@@ -449,7 +452,8 @@
     :root[data-theme="dark"] .stats-window { color: #8ea69e; background: #172622; border-color: #30463f; }
     :root[data-theme="dark"] .stats-window:hover { color: #d2e3dc; border-color: #527b6d; }
     :root[data-theme="dark"] .stats-window.is-active { color: #173d34; background: #cbe86b; border-color: #cbe86b; }
-    :root[data-theme="dark"] .stats-kpi-label, :root[data-theme="dark"] .stats-panel-meta, :root[data-theme="dark"] .stats-bar-pct { color: #879e96; }
+    :root[data-theme="dark"] .stats-kpi-label, :root[data-theme="dark"] .stats-panel-meta, :root[data-theme="dark"] .stats-bar-pct, :root[data-theme="dark"] .stats-export { color: #879e96; }
+    :root[data-theme="dark"] .stats-export:hover { color: #79c9a7; }
     :root[data-theme="dark"] .stats-kpi-value, :root[data-theme="dark"] .stats-panel-head h3, :root[data-theme="dark"] .stats-table-path { color: #dce9e4; }
     :root[data-theme="dark"] .stats-kpi-value span { color: #879e96; }
     :root[data-theme="dark"] .stats-kpi small { color: #879e96; }
@@ -463,7 +467,7 @@
     :root[data-theme="dark"] .stats-table-num.is-alert { color: #f3aaa6; }
     :root[data-theme="dark"] .stats-empty { color: #8ba198; }
     :root[data-theme="dark"] .stats-empty p { color: #a9bdb6; }
-    @media (max-width: 760px) { .stats-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stats-grid { grid-template-columns: 1fr; } .stats-chart-box { height: 220px; margin-right: 8px; margin-left: 8px; } .stats-donut { flex-direction: column; gap: 14px; } .stats-donut-canvas { width: 190px; height: 190px; flex-basis: 190px; } .stats-donut-legend { max-width: 100%; } .stats-bar { grid-template-columns: minmax(70px, 24%) minmax(0, 1fr) 46px 42px; } .stats-panel-head { display: block; } .stats-panel-meta { display: block; margin-top: 2px; white-space: normal; } }
+    @media (max-width: 760px) { .stats-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stats-grid { grid-template-columns: 1fr; } .stats-chart-box { height: 220px; margin-right: 8px; margin-left: 8px; } .stats-donut { flex-direction: column; gap: 14px; } .stats-donut-canvas { width: 190px; height: 190px; flex-basis: 190px; } .stats-donut-legend { max-width: 100%; flex: none; } .stats-bar { grid-template-columns: minmax(70px, 24%) minmax(0, 1fr) 46px 42px; } .stats-legend-row { grid-template-columns: 12px minmax(70px, 24%) minmax(0, 1fr) 46px 42px; } .stats-panel-head { display: block; } .stats-panel-meta { display: block; margin-top: 2px; white-space: normal; } }
   </style>
 </head>
 <body>
@@ -506,7 +510,7 @@
       </div>
       </div>
       <div class="telemetry-panel" id="sessions-panel" role="tabpanel" aria-labelledby="sessions-tab" hidden><div class="session-table-head" role="row"><span></span><span>Session</span><span>Selector</span><span>Upstream</span><span>Model</span><span>State</span><span>Status</span><span>Send</span><span>Receive</span><span>Duration</span><span></span></div><div id="session-list" class="session-list"></div></div>
-      <div class="telemetry-panel" id="stats-panel" role="tabpanel" aria-labelledby="stats-tab" hidden><div id="stats-view" class="stats-view"></div><div id="stats-charts" class="stats-charts" hidden><div class="stats-panel stats-panel-wide"><div class="stats-panel-head"><h3>请求时间分布</h3><span class="stats-panel-meta" data-stats-meta></span></div><div class="stats-chart-box" id="stats-time-chart"></div><div class="stats-chart-foot"><span class="stats-chart-legend"><i class="dot is-ok"></i>成功<i class="dot is-err"></i>错误<i class="dot is-p50"></i>P50<i class="dot is-p95"></i>P95</span><span class="tab-connection">拖动缩放 · 悬停查看明细</span></div></div><div class="stats-panel stats-panel-wide"><div class="stats-panel-head"><h3>Activity Heatmap</h3><span class="stats-panel-meta">小时 × 星期 · 颜色越深越活跃</span></div><div class="stats-chart-box" id="stats-heatmap"></div></div><div class="stats-panel stats-panel-wide"><div class="stats-panel-head"><h3>HTTP 状态</h3></div><div class="stats-donut"><div class="stats-donut-canvas" id="stats-status"></div><div class="stats-donut-legend" id="stats-status-legend"></div></div></div><div id="stats-charts-bars"></div></div></div>
+      <div class="telemetry-panel" id="stats-panel" role="tabpanel" aria-labelledby="stats-tab" hidden><div id="stats-view" class="stats-view"></div><div id="stats-charts" class="stats-charts" hidden><div class="stats-panel stats-panel-wide"><div class="stats-panel-head"><h3>请求时间分布</h3><span class="stats-panel-head-right"><span class="stats-panel-meta" data-stats-meta></span><a class="stats-export" href="/stats/export" target="_blank" rel="noopener" title="导出当前统计为独立 HTML 快照（可分享 / 归档）"><i data-lucide="download"></i>导出快照</a></span></div><div class="stats-chart-box" id="stats-time-chart"></div><div class="stats-chart-foot"><span class="stats-chart-legend"><i class="dot is-ok"></i>成功<i class="dot is-err"></i>错误<i class="dot is-p50"></i>P50<i class="dot is-p95"></i>P95</span><span class="tab-connection">柱高=请求数 · 右轴=P50/P95 延迟(ms) · 拖动缩放 · 悬停看明细</span></div></div><div class="stats-panel stats-panel-wide"><div class="stats-panel-head"><h3>Activity Heatmap</h3><span class="stats-panel-meta">小时 × 星期 · 颜色越深越活跃</span></div><div class="stats-chart-box" id="stats-heatmap"></div></div><div class="stats-panel stats-panel-wide"><div class="stats-panel-head"><h3>HTTP 状态</h3></div><div class="stats-donut"><div class="stats-donut-canvas" id="stats-status"></div><div class="stats-donut-legend" id="stats-status-legend"></div></div></div><div id="stats-charts-bars"></div></div></div>
       <div class="telemetry-panel" id="logs-panel" role="tabpanel" aria-labelledby="logs-tab" hidden><div class="log-toolbar"><span class="tab-connection" data-log-connection>SSE connected</span><button class="text-button" type="button" data-log-pretty title="格式化 JSON" aria-label="格式化 JSON" aria-pressed="false"><i data-lucide="braces"></i>pretty</button></div><pre id="log-stream"></pre></div>
     </section>
   </main>
@@ -1404,6 +1408,7 @@
       layout: { background: { type: 'solid', color: 'transparent' }, textColor: c.text, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontSize: 11 },
       grid: { vertLines: { color: c.grid }, horzLines: { color: c.grid } },
       rightPriceScale: { borderColor: c.grid, scaleMargins: { top: 0.12, bottom: 0.08 } },
+      leftPriceScale: { visible: true, borderColor: c.grid },
       timeScale: {
       borderColor: c.grid,
       rightOffset: 3,
@@ -1432,13 +1437,15 @@
       },
       crosshair: { horzLine: { color: c.grid, labelBackgroundColor: '#176d59' }, vertLine: { color: c.grid, labelBackgroundColor: '#176d59' } },
       });
-      timeHistogram = timeChart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'left' });
+      timeHistogram = timeChart.addHistogramSeries({ priceScaleId: 'left', priceFormat: { type: 'custom', minMove: 1, formatter: v => String(Math.round(v)) } });
       timeHistogram.priceScale().applyOptions({ scaleMargins: { top: 0.06, bottom: 0.08 } });
       timeErrorLine = timeChart.addLineSeries({ color: c.err, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerRadius: 3, priceScaleId: 'left' });
       // Latency percentiles live on the right axis so request volume keeps
-      // its own scale; P50/P95 only exist where a bucket has requests.
-      timeLatP50 = timeChart.addLineSeries({ color: c.p50, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerRadius: 0, priceScaleId: 'right' });
-      timeLatP95 = timeChart.addLineSeries({ color: c.p95, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerRadius: 2, priceScaleId: 'right' });
+      // its own scale; P50/P95 only exist where a bucket has requests. The
+      // custom price format renders axis ticks as durations instead of raw
+      // milliseconds, so the two axes cannot be mistaken for each other.
+      timeLatP50 = timeChart.addLineSeries({ color: c.p50, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerRadius: 0, priceScaleId: 'right', priceFormat: { type: 'custom', minMove: 0.01, formatter: statsDuration } });
+      timeLatP95 = timeChart.addLineSeries({ color: c.p95, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerRadius: 2, priceScaleId: 'right', priceFormat: { type: 'custom', minMove: 0.01, formatter: statsDuration } });
       const tooltip = document.createElement('div');
       tooltip.className = 'stats-chart-tooltip';
       container.appendChild(tooltip);
@@ -1509,9 +1516,10 @@
             x: { min: -1, max: 24, grid: { display: false }, title: { display: true, text: 'Hour of Day', color: c.text, font: { size: 10 } }, ticks: { stepSize: 1, color: c.text, font: { size: 9 }, callback: v => (Number.isInteger(v) ? v : '') } },
             y: { min: -1, max: 7, reverse: true, grid: { display: false }, title: { display: true, text: 'Day of Week', color: c.text, font: { size: 10 } }, ticks: { stepSize: 1, color: c.text, font: { size: 9 }, callback: v => statsDayLabels[v] || '' } },
           },
-          plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => statsDayLabels[ctx.raw.y] + ' ' + ctx.raw.x + ':00 - ' + ctx.raw.count + ' requests' } } },
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => statsDayLabels[ctx.raw.y] + ' ' + ctx.raw.x + ':00 - ' + ctx.raw.count + ' requests' + ' (' + Math.round((ctx.raw.count || 0) / (heatmapChart.__statsMax || 1) * 100) + '%)' } } },
         },
       });
+      heatmapChart.__statsMax = maxCount;
     }
     function updateHeatmap() {
       if (!heatmapChart || !statsSeriesData) return;
@@ -1521,6 +1529,7 @@
       const scaleFactor = 16 / Math.sqrt(maxCount);
       heatmapChart.data.datasets[0].data = cells.map(cell => ({ x: cell.x, y: cell.y, r: Math.min(Math.sqrt(cell.count) * scaleFactor, 24), count: cell.count }));
       heatmapChart.data.datasets[0].backgroundColor = ctx => statsInterpolate((ctx.raw ? ctx.raw.count : 0) / maxCount, c.heatFrom, c.heatTo);
+      heatmapChart.__statsMax = maxCount;
       // 'none' skips the animation: re-animating on every SSE frame is what
       // made the charts jitter while requests stream in.
       heatmapChart.update('none');
@@ -1530,6 +1539,7 @@
       if (!legend) return;
       // Reuse existing rows and update values in place, so live SSE frames do
       // not tear down and rebuild the legend DOM (another jitter source).
+      const maxCount = statuses.reduce((m, status) => Math.max(m, status.count), 1);
       while (legend.children.length > statuses.length) legend.lastChild.remove();
       statuses.forEach((status, i) => {
         const pct = total ? Math.round(status.count / total * 100) : 0;
@@ -1537,11 +1547,14 @@
         if (!row) {
           row = document.createElement('div');
           row.className = 'stats-legend-row';
-          row.innerHTML = '<i class="stats-legend-dot"></i><span class="stats-bar-name"></span><span class="stats-bar-count"></span><span class="stats-bar-pct"></span>';
+          row.innerHTML = '<i class="stats-legend-dot"></i><span class="stats-bar-name"></span><span class="stats-bar-track"><span class="stats-bar-fill"></span></span><span class="stats-bar-count"></span><span class="stats-bar-pct"></span>';
           legend.append(row);
         }
         row.querySelector('.stats-legend-dot').style.background = colors[i];
         row.querySelector('.stats-bar-name').textContent = status.name;
+        const fill = row.querySelector('.stats-bar-fill');
+        fill.style.background = colors[i];
+        fill.style.width = Math.round(status.count / maxCount * 100) + '%';
         row.querySelector('.stats-bar-count').textContent = String(status.count);
         row.querySelector('.stats-bar-pct').textContent = pct + '%';
       });

@@ -1105,6 +1105,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.serveStats(w, r)
 		return
 	}
+	if r.URL.Path == "/stats/export" && r.Method == http.MethodGet {
+		p.serveStatsExport(w, r)
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/sessions/") && r.Method == http.MethodGet {
 		p.serveSessionPayload(w, r)
 		return
@@ -1314,7 +1318,7 @@ func isManagementRequest(r *http.Request) bool {
 	if r.URL.Path == "/config/secrets" {
 		return true
 	}
-	return (r.URL.Path == "/logs" || r.URL.Path == "/sessions" || strings.HasPrefix(r.URL.Path, "/sessions/") || r.URL.Path == "/stats" || r.URL.Path == "/stats/stream") && r.Method == http.MethodGet
+	return (r.URL.Path == "/logs" || r.URL.Path == "/sessions" || strings.HasPrefix(r.URL.Path, "/sessions/") || r.URL.Path == "/stats" || r.URL.Path == "/stats/stream" || r.URL.Path == "/stats/export") && r.Method == http.MethodGet
 }
 
 func setCORSHeaders(w http.ResponseWriter) {

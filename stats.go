@@ -962,3 +962,154 @@ func renderStats(view statsView) (string, error) {
 	}
 	return output.String(), nil
 }
+
+// statsExportWindows are the windows inlined into a standalone snapshot; the
+// exported page keeps its window buttons working without the gateway.
+var statsExportWindows = []string{"all", "1h", "24h", "7d", "30d"}
+
+func (p *Proxy) serveStatsExport(w http.ResponseWriter, r *http.Request) {
+	if p.Sessions == nil {
+		http.Error(w, "session tracking is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	html, err := buildStatsSnapshotHTML(p.Sessions)
+	if err != nil {
+		http.Error(w, "failed to render stats snapshot", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Disposition", `attachment; filename="agw-stats-`+time.Now().Format("20060102-1504")+`.html"`)
+	_, _ = io.WriteString(w, html)
+}
+
+// buildStatsSnapshotHTML assembles a fully standalone snapshot of the stats
+// tab: the page's own stylesheet, the stable stats-panel markup and the chart
+// JavaScript (extracted between the markers, byte for byte identical to the
+// live page) with every window's fragment inlined as STATS_WINDOWS. The
+// result is a single HTML file that renders charts from the CDN and needs no
+// gateway, so it can be shared or archived.
+func buildStatsSnapshotHTML(hub *sessionHub) (string, error) {
+	raw, err := templateFS.ReadFile("templates/page.html")
+	if err != nil {
+		return "", err
+	}
+	page := string(raw)
+
+	styleStart := strings.Index(page, "<style>")
+	styleEnd := strings.Index(page, "</style>")
+	if styleStart < 0 || styleEnd < styleStart {
+		return "", fmt.Errorf("page template: style block not found")
+	}
+	style := page[styleStart+len("<style>") : styleEnd]
+
+	panelLine := ""
+	for _, line := range strings.Split(page, "\n") {
+		if strings.Contains(line, `id="stats-panel"`) {
+			panelLine = line
+			break
+		}
+	}
+	if panelLine == "" {
+		return "", fmt.Errorf("page template: stats panel not found")
+	}
+	panel := panelLine[strings.Index(panelLine, `<div class="telemetry-panel" id="stats-panel"`):]
+	panel = strings.Replace(panel, `id="stats-panel" role="tabpanel" aria-labelledby="stats-tab" hidden`, `id="stats-panel" role="tabpanel" aria-labelledby="stats-tab"`, 1)
+
+	const startMarker = "// ==== stats charts start ===="
+	const endMarker = "// ==== stats charts end ===="
+	chartStart := strings.Index(page, startMarker)
+	chartEnd := strings.Index(page, endMarker)
+	if chartStart < 0 || chartEnd < chartStart {
+		return "", fmt.Errorf("page template: chart block markers not found")
+	}
+	chartJS := strings.TrimRight(page[chartStart:chartEnd], " \t\r\n") + "\n"
+
+	var windows strings.Builder
+	windows.WriteString("{\n")
+	for i, key := range statsExportWindows {
+		if i > 0 {
+			windows.WriteString(",\n")
+		}
+		fragment, err := renderStats(hub.stats(key))
+		if err != nil {
+			return "", err
+		}
+		encoded, err := json.Marshal(fragment)
+		if err != nil {
+			return "", err
+		}
+		windows.WriteString("  " + strconv.Quote(key) + ": " + string(encoded))
+	}
+	windows.WriteString("\n}")
+
+	// Mirrors the static preview shell so exports look identical to it; the
+	// chart block below expects setTheme/destroyStatsCharts/renderStatsCharts.
+	shellJS := `const themeToggle = document.getElementById('theme-toggle');
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  try { localStorage.setItem('agw-theme', theme); } catch (_) {}
+  const isDark = theme === 'dark';
+  themeToggle.title = isDark ? '切换到浅色主题' : '切换到深色主题';
+  themeToggle.setAttribute('aria-label', themeToggle.title);
+  themeToggle.innerHTML = '<i data-lucide="' + (isDark ? 'sun' : 'moon') + '"></i>';
+  renderIcons(themeToggle);
+  destroyStatsCharts(); renderStatsCharts();
+}
+themeToggle.addEventListener('click', function () {
+  setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+});
+setTheme(document.documentElement.dataset.theme || 'light');
+`
+
+	const shell = `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AGW Stats 快照</title>
+  <meta name="theme-color" content="#12312d">
+  <script>try { document.documentElement.dataset.theme = localStorage.getItem('agw-theme') || 'light'; } catch (_) { document.documentElement.dataset.theme = 'light'; }</script>
+  <script src="https://unpkg.com/lucide@0.468.0"></script>
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+__STYLE__
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="telemetry" aria-labelledby="workspace-title">
+      <h2 class="sr-only" id="workspace-title">Workspace</h2>
+      <div class="telemetry-top">
+        <div class="identity">
+          <div class="brand-mark" title="AGW">AGW</div>
+        </div>
+        <div class="telemetry-tabbar" role="tablist" aria-label="工作区视图"><button class="telemetry-tab" type="button" role="tab" aria-selected="true"><span class="live-dot"></span><span>Stats</span></button></div>
+        <div class="appbar-actions">
+          <span id="status" aria-live="polite">静态快照 · 导出于 __EXPORTED__</span>
+          <button class="icon-button" type="button" id="theme-toggle" title="切换到浅色主题" aria-label="切换到浅色主题"><i data-lucide="sun"></i></button>
+        </div>
+      </div>
+__PANEL__
+    </section>
+  </main>
+  <script>
+const STATS_WINDOWS = __WINDOWS_JSON__;
+function renderIcons(scope) { if (window.lucide) window.lucide.createIcons({root: scope || document, attrs: {'stroke-width': 1.8}}); }
+__CHART_JS__
+  </script>
+  <script>
+__SHELL_JS__
+  </script>
+</body>
+</html>
+`
+	out := strings.Replace(shell, "__STYLE__", style, 1)
+	out = strings.Replace(out, "__PANEL__", panel, 1)
+	out = strings.Replace(out, "__WINDOWS_JSON__", windows.String(), 1)
+	out = strings.Replace(out, "__CHART_JS__", chartJS, 1)
+	out = strings.Replace(out, "__SHELL_JS__", shellJS, 1)
+	out = strings.Replace(out, "__EXPORTED__", time.Now().Format("2006-01-02 15:04"), 1)
+	return out, nil
+}

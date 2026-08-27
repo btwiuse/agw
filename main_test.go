@@ -2004,7 +2004,7 @@ func TestConfigPageDefaultsToDarkSessionJournal(t *testing.T) {
 		t.Fatalf("config page Cache-Control = %q, want no-store", got)
 	}
 	content := recorder.Body.String()
-	for _, expected := range []string{"agw-theme", "'dark'", "theme-toggle", "telemetry-tabbar", "SSE connected", "sessions-panel", "logs-panel", "aria-selected=\"true\"", "Compatible AppSelectors", "selector-table-head", ">Rules<", "updateSelectorSummary", "match-value-field", "match-value-actions", "selector-no-rules", "No rules - matches all requests", ">Actions<", "data-selector", "data-drop-zone", "drop-indicator", "松手后放到这里", "data-duplicate-row", "data-duplicate-selector", "session-table-head", ">Selector<", ">Upstream<", ">Model<", ">Send<", ">Receive<", ">Duration<", "data-payload-modal", "data-log-pretty", "data-log-connection", "yaml-config", "data-config-modal", "data-config-yaml", "data-config-yaml-merged", "secrets-config", "data-secrets-modal", "data-secrets-yaml", "data-session-count", "data-selector-tab-count", "data-upstream-tab-count", "data-log-count", `class="tab-count"`, `class="add-row"`, `id="add-selector"`, `id="routing-tab"`, `id="selectors-tab"`, `data-telemetry-tab="routing"`, `data-telemetry-tab="selectors"`, `id="routing-panel" role="tabpanel" aria-labelledby="routing-tab" hidden`, `id="selectors-panel" role="tabpanel" aria-labelledby="selectors-tab"`, `id="sessions-panel" role="tabpanel" aria-labelledby="sessions-tab" hidden`, "viewFromHash", "hashchange", "location.hash", "scheduleSessionReconcile", "sessionGestureActive", "lastSessionHTML", "data-tab-menu-button", `class="tab-menu-button"`, "closeTabMenu", "hamburger-mode", "updateTabLayoutMode", `rel="manifest"`, "og:title", `name="theme-color"`, `rel="icon" href="/favicon.ico"`, "apple-touch-icon", "icon-512.png", `>AppSelector<`, `>Routing<`, `>Sessions<`, `>Logs<`, `data-rule-type-option="method"`, `id="stats-tab"`, `data-telemetry-tab="stats"`, `id="stats-panel"`, `id="stats-view"`, "EventSource('/stats/stream?window=' + statsWindow)", "lightweight-charts", "chart.js", "stats-time-chart", "stats-heatmap", "stats-status", "stats-charts-bars", "data-stats-meta", "stats-donut", "stats-chart-tooltip"} {
+	for _, expected := range []string{"agw-theme", "'dark'", "theme-toggle", "telemetry-tabbar", "SSE connected", "sessions-panel", "logs-panel", "aria-selected=\"true\"", "Compatible AppSelectors", "selector-table-head", ">Rules<", "updateSelectorSummary", "match-value-field", "match-value-actions", "selector-no-rules", "No rules - matches all requests", ">Actions<", "data-selector", "data-drop-zone", "drop-indicator", "松手后放到这里", "data-duplicate-row", "data-duplicate-selector", "session-table-head", ">Selector<", ">Upstream<", ">Model<", ">Send<", ">Receive<", ">Duration<", "data-payload-modal", "data-log-pretty", "data-log-connection", "yaml-config", "data-config-modal", "data-config-yaml", "data-config-yaml-merged", "secrets-config", "data-secrets-modal", "data-secrets-yaml", "data-session-count", "data-selector-tab-count", "data-upstream-tab-count", "data-log-count", `class="tab-count"`, `class="add-row"`, `id="add-selector"`, `id="routing-tab"`, `id="selectors-tab"`, `data-telemetry-tab="routing"`, `data-telemetry-tab="selectors"`, `id="routing-panel" role="tabpanel" aria-labelledby="routing-tab" hidden`, `id="selectors-panel" role="tabpanel" aria-labelledby="selectors-tab"`, `id="sessions-panel" role="tabpanel" aria-labelledby="sessions-tab" hidden`, "viewFromHash", "hashchange", "location.hash", "scheduleSessionReconcile", "sessionGestureActive", "lastSessionHTML", "data-tab-menu-button", `class="tab-menu-button"`, "closeTabMenu", "hamburger-mode", "updateTabLayoutMode", `rel="manifest"`, "og:title", `name="theme-color"`, `rel="icon" href="/favicon.ico"`, "apple-touch-icon", "icon-512.png", `>AppSelector<`, `>Routing<`, `>Sessions<`, `>Logs<`, `data-rule-type-option="method"`, `id="stats-tab"`, `data-telemetry-tab="stats"`, `id="stats-panel"`, `id="stats-view"`, "EventSource('/stats/stream?window=' + statsWindow)", "lightweight-charts", "chart.js", "stats-time-chart", "stats-heatmap", "stats-status", "stats-charts-bars", "data-stats-meta", "stats-donut", "stats-chart-tooltip", "stats-export", "/stats/export", "stats-panel-head-right"} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("config page missing %q", expected)
 		}
@@ -2352,6 +2352,40 @@ func TestStatsRouteRendersFragment(t *testing.T) {
 	windowContent := windowed.Body.String()
 	if !strings.Contains(windowContent, `data-stats-window="24h"`) || !strings.Contains(windowContent, `<button class="stats-window is-active" type="button" data-stats-window-button="24h"`) {
 		t.Fatalf("windowed stats fragment should mark 24h active:\n%s", windowContent)
+	}
+}
+
+func TestStatsExportRendersStandaloneHTML(t *testing.T) {
+	hub := newSessionHub()
+	defer hub.close()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	proxy := &Proxy{Logger: logger, Sessions: hub}
+	now := time.Now()
+	hub.mu.Lock()
+	hub.history = []*statsEntry{
+		{sessionID: "s1", started: now, completed: now.Add(time.Second), status: 200, state: "completed", reqBytes: 10, respBytes: 20, model: "gpt-5", upstream: "openai", method: "POST", path: "/responses"},
+	}
+	hub.mu.Unlock()
+
+	recorder := httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/stats/export", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("export status = %d", recorder.Code)
+	}
+	disposition := recorder.Header().Get("Content-Disposition")
+	if !strings.HasPrefix(disposition, `attachment; filename="agw-stats-`) || !strings.HasSuffix(disposition, `.html"`) {
+		t.Fatalf("export Content-Disposition = %q", disposition)
+	}
+	content := recorder.Body.String()
+	for _, expected := range []string{"<!doctype html>", "STATS_WINDOWS", "// ==== stats charts start ====", "theme-toggle", "请求时间分布", "stats-time-chart", `"1h"`, `"24h"`, `"7d"`, `"30d"`, `"all"`, `data-stats-window=\"all\"`, `data-stats-window-button=\"24h\"`, "buckets", "heatmap", "statuses", "Upstream 汇总"} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("export missing %q", expected)
+		}
+	}
+	// The fragments are embedded as JSON inside a <script> block; Go's JSON
+	// encoder escapes '<' as \u003c, so no inline tag can terminate the block.
+	if !strings.Contains(content, `\u003c/`) {
+		t.Fatalf("windows JSON must escape HTML tag openers")
 	}
 }
 

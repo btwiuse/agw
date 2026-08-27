@@ -228,6 +228,8 @@ upstreams:
 
 图表为客户端渲染：时间分布用 lightweight-charts，热力图与状态圆环用 Chart.js（均走 CDN，与 htmx / lucide 一致），颜色随页面明暗主题自动切换；图表 canvas 位于稳定容器中，SSE 增量更新只更新数据、不重建图表，避免流式刷新时的闪烁。
 
+请求时间分布面板右上角的**导出快照**会下载一个完全独立的 HTML 文件：内嵌全部时间窗口的数据与图表代码（与预览同构），无需网关即可在浏览器中查看，适合分享与归档。
+
 Stats 与 Session journal 同源，随会话实时更新；`/stats` 和 `/stats/stream` 与其他管理路径一样受 Basic Auth 保护。
 
 ```bash
