@@ -1246,6 +1246,11 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req.Header.Del("Content-Length")
 		// Keep error bodies readable in logs and let the proxy return plain text.
 		req.Header.Set("Accept-Encoding", "identity")
+		// Strip Origin and Referer before forwarding so upstreams cannot filter
+		// on the caller's browser/host. The session journal still records the
+		// original headers from r.Header, so nothing is lost for inspection.
+		req.Header.Del("Origin")
+		req.Header.Del("Referer")
 		if upstream.Authorization == nil || !strings.EqualFold(upstream.Authorization.Type, "none") {
 			req.Header.Del("Authorization")
 			req.Header.Set("Authorization", header)

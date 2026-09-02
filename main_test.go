@@ -208,6 +208,42 @@ func TestProxyRequestsUncompressedResponses(t *testing.T) {
 	}
 }
 
+func TestProxyStripsOriginAndRefererBeforeUpstream(t *testing.T) {
+	var seenOrigin, seenReferer string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenOrigin = r.Header.Get("Origin")
+		seenReferer = r.Header.Get("Referer")
+		if values := r.Header.Values("Origin"); len(values) != 0 {
+			t.Errorf("upstream Origin header count = %d, want 0", len(values))
+		}
+		if values := r.Header.Values("Referer"); len(values) != 0 {
+			t.Errorf("upstream Referer header count = %d, want 0", len(values))
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	proxy := &Proxy{
+		Upstreams: []Upstream{{URL: server.URL, Authorization: &Authorization{Type: "none"}}},
+		Client:    http.DefaultClient,
+		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	}
+	request := httptest.NewRequest(http.MethodPost, "/resource", strings.NewReader("payload"))
+	request.Header.Set("Origin", "https://chat.openai.com")
+	request.Header.Set("Referer", "https://chat.openai.com/chat")
+	recorder := httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("response status = %d", recorder.Code)
+	}
+	if seenOrigin != "" {
+		t.Fatalf("upstream Origin = %q, want empty", seenOrigin)
+	}
+	if seenReferer != "" {
+		t.Fatalf("upstream Referer = %q, want empty", seenReferer)
+	}
+}
+
 func TestRunRejectsUnknownFlag(t *testing.T) {
 	if err := Run([]string{"-unknown"}); err == nil {
 		t.Fatal("Run accepted an unknown flag")
