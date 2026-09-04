@@ -1403,6 +1403,8 @@
     let timeChart = null, timeHistogram = null, timeErrorLine = null, timeLatP50 = null, timeLatP95 = null;
     let tokenChart = null, tokenInSeries = null, tokenOutSeries = null;
     let heatmapChart = null, statusChart = null;
+    let statsTimeScaleSyncFrame = 0;
+    let statsSharedScaleWidths = { left: 0, right: 0 };
     let statsChartsBuilt = false;
     const statsDayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const statsStatusPalette = ['--stats-donut-2xx', '--stats-donut-3xx', '--stats-donut-4xx', '--stats-donut-5xx', '--stats-donut-pending'];
@@ -1446,17 +1448,115 @@
     }
     function destroyStatsCharts() {
       if (timeChart) {
+        unlinkStatsCrosshair(timeChart);
+        unlinkStatsTimeScale(timeChart);
         if (timeChart.__statsRefit) { timeChart.__statsRefit.disconnect(); timeChart.__statsRefit = null; }
         timeChart.remove(); timeChart = null; timeHistogram = null; timeErrorLine = null; timeLatP50 = null; timeLatP95 = null;
       }
       if (tokenChart) {
+        unlinkStatsCrosshair(tokenChart);
+        unlinkStatsTimeScale(tokenChart);
         if (tokenChart.__statsRefit) { tokenChart.__statsRefit.disconnect(); tokenChart.__statsRefit = null; }
         tokenChart.remove(); tokenChart = null; tokenInSeries = null; tokenOutSeries = null;
       }
       if (heatmapChart) { heatmapChart.destroy(); heatmapChart = null; }
       if (statusChart) { statusChart.destroy(); statusChart = null; }
       ['stats-time-chart', 'stats-heatmap', 'stats-status', 'stats-token-chart'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
+      if (statsTimeScaleSyncFrame) { cancelAnimationFrame(statsTimeScaleSyncFrame); statsTimeScaleSyncFrame = 0; }
+      statsSharedScaleWidths = { left: 0, right: 0 };
       statsChartsBuilt = false;
+    }
+    function unlinkStatsTimeScale(chart) {
+      if (!chart || !chart.__statsTimeScaleSync) return;
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(chart.__statsTimeScaleSync);
+      chart.__statsTimeScaleSync = null;
+    }
+    function sameStatsLogicalRange(left, right) {
+      return !!left && !!right && Math.abs(left.from - right.from) < 0.000001 && Math.abs(left.to - right.to) < 0.000001;
+    }
+    function syncStatsTimeScale(chart, range) {
+      if (!chart || !range || !Number.isFinite(range.from) || !Number.isFinite(range.to)) return;
+      const scale = chart.timeScale();
+      if (!sameStatsLogicalRange(range, scale.getVisibleLogicalRange())) scale.setVisibleLogicalRange(range);
+    }
+    function statsPriceScaleWidth(chart, side) {
+      return chart ? chart.priceScale(side).width() : 0;
+    }
+    function syncStatsChartLayout() {
+      if (!timeChart || !tokenChart || !statsSeriesData || !statsSeriesData.tokens || statsTimeScaleSyncFrame) return;
+      statsTimeScaleSyncFrame = requestAnimationFrame(function () {
+        statsTimeScaleSyncFrame = 0;
+        if (!timeChart || !tokenChart) return;
+        const left = Math.max(statsSharedScaleWidths.left, statsPriceScaleWidth(timeChart, 'left'), statsPriceScaleWidth(tokenChart, 'left'));
+        const right = Math.max(statsSharedScaleWidths.right, statsPriceScaleWidth(timeChart, 'right'), statsPriceScaleWidth(tokenChart, 'right'));
+        if (left > statsSharedScaleWidths.left) {
+          statsSharedScaleWidths.left = left;
+          timeChart.priceScale('left').applyOptions({ minimumWidth: left });
+          tokenChart.priceScale('left').applyOptions({ minimumWidth: left });
+        }
+        if (right > statsSharedScaleWidths.right) {
+          statsSharedScaleWidths.right = right;
+          timeChart.priceScale('right').applyOptions({ minimumWidth: right });
+          tokenChart.priceScale('right').applyOptions({ minimumWidth: right });
+        }
+        syncStatsTimeScale(tokenChart, timeChart.timeScale().getVisibleLogicalRange());
+      });
+    }
+    function statsBucketAt(time) {
+      return (statsSeriesData && statsSeriesData.buckets || []).find(bucket => bucket.t === time);
+    }
+    function unlinkStatsCrosshair(chart) {
+      if (!chart || !chart.__statsCrosshairSync) return;
+      chart.unsubscribeCrosshairMove(chart.__statsCrosshairSync);
+      chart.__statsCrosshairSync = null;
+    }
+    function linkStatsTimeScales() {
+      if (!timeChart || !tokenChart) return;
+      if (!statsSeriesData || !statsSeriesData.tokens) {
+        unlinkStatsTimeScale(timeChart);
+        unlinkStatsTimeScale(tokenChart);
+        return;
+      }
+      unlinkStatsTimeScale(timeChart);
+      unlinkStatsTimeScale(tokenChart);
+      const link = function (source, target) {
+        const handler = function (range) { syncStatsTimeScale(target, range); };
+        source.timeScale().subscribeVisibleLogicalRangeChange(handler);
+        source.__statsTimeScaleSync = handler;
+      };
+      link(timeChart, tokenChart);
+      link(tokenChart, timeChart);
+      syncStatsTimeScale(tokenChart, timeChart.timeScale().getVisibleLogicalRange());
+      syncStatsChartLayout();
+    }
+    function linkStatsCrosshairs() {
+      if (!timeChart || !tokenChart) return;
+      if (!statsSeriesData || !statsSeriesData.tokens) {
+        unlinkStatsCrosshair(timeChart);
+        unlinkStatsCrosshair(tokenChart);
+        return;
+      }
+      if (timeChart.__statsCrosshairSync && tokenChart.__statsCrosshairSync) return;
+      unlinkStatsCrosshair(timeChart);
+      unlinkStatsCrosshair(tokenChart);
+      let syncing = false;
+      const link = function (source, target, series, valueFor) {
+        const handler = function (param) {
+          if (syncing) return;
+          syncing = true;
+          try {
+            const bucket = typeof param.time === 'number' ? statsBucketAt(param.time) : null;
+            if (bucket) target.setCrosshairPosition(valueFor(bucket), param.time, series);
+            else target.clearCrosshairPosition();
+          } finally {
+            syncing = false;
+          }
+        };
+        source.subscribeCrosshairMove(handler);
+        source.__statsCrosshairSync = handler;
+      };
+      link(timeChart, tokenChart, tokenInSeries, bucket => bucket.in || 0);
+      link(tokenChart, timeChart, timeHistogram, bucket => bucket.count);
     }
     function buildTimeChart() {
       const container = document.getElementById('stats-time-chart');
@@ -1527,7 +1627,7 @@
       // squeezed into part of the canvas. Refit whenever the container's
       // size actually changes (initial layout, tab reveal, window resize).
       if ('ResizeObserver' in window) {
-        const refit = function () { if (timeChart) timeChart.timeScale().fitContent(); };
+        const refit = function () { if (timeChart) timeChart.timeScale().fitContent(); syncStatsChartLayout(); };
         const observer = new ResizeObserver(refit);
         observer.observe(container);
         timeChart.__statsRefit = observer;
@@ -1552,6 +1652,7 @@
       const lastTime = buckets.length ? buckets[buckets.length - 1].t : 0;
       if (!visible || !visible.to || lastTime > visible.to) timeChart.timeScale().fitContent();
       if (statsMeta) statsMeta.textContent = statsSeriesData.meta || '';
+      syncStatsChartLayout();
     }
     // statsTokenCount renders a token count compactly (12.3k / 2.5M) for the
     // token chart tooltip, mirroring the server-side compactCount formatting.
@@ -1608,8 +1709,10 @@
         tooltip.style.display = 'block';
       });
       updateTokenChart();
+      linkStatsTimeScales();
+      linkStatsCrosshairs();
       if ('ResizeObserver' in window) {
-        const refit = function () { if (tokenChart) tokenChart.timeScale().fitContent(); };
+        const refit = function () { if (tokenChart) tokenChart.timeScale().fitContent(); syncStatsChartLayout(); };
         const observer = new ResizeObserver(refit);
         observer.observe(container);
         tokenChart.__statsRefit = observer;
@@ -1621,14 +1724,14 @@
       if (!tokenChart || !statsSeriesData) return;
       const c = statsChartColors();
       const buckets = statsSeriesData.buckets;
-      const tokenBuckets = buckets.filter(b => (b.in || 0) > 0 || (b.out || 0) > 0);
-      tokenInSeries.setData(tokenBuckets.map(b => ({ time: b.t, value: b.in || 0 })));
-      tokenOutSeries.setData(tokenBuckets.map(b => ({ time: b.t, value: b.out || 0 })));
+      tokenInSeries.setData(buckets.map(b => b.in || b.out ? { time: b.t, value: b.in || 0 } : { time: b.t }));
+      tokenOutSeries.setData(buckets.map(b => b.in || b.out ? { time: b.t, value: b.out || 0 } : { time: b.t }));
       tokenInSeries.applyOptions({ color: c.tokenIn });
       tokenOutSeries.applyOptions({ color: c.tokenOut });
       const visible = tokenChart.timeScale().getVisibleRange();
-      const lastTime = tokenBuckets.length ? tokenBuckets[tokenBuckets.length - 1].t : 0;
+      const lastTime = buckets.length ? buckets[buckets.length - 1].t : 0;
       if (!visible || !visible.to || lastTime > visible.to) tokenChart.timeScale().fitContent();
+      syncStatsChartLayout();
     }
     function buildHeatmap() {
       const holder = document.getElementById('stats-heatmap');
@@ -1732,7 +1835,7 @@
         if (statsSeriesData && statsPanelVisible() && (window.LightweightCharts || window.Chart)) { buildTimeChart(); buildTokenChart(); buildHeatmap(); buildStatusChart(); }
         return;
       }
-      updateTimeChart(); updateTokenChart(); updateHeatmap(); updateStatusChart();
+      updateTimeChart(); updateTokenChart(); if (statsSeriesData.tokens) syncStatsTimeScale(tokenChart, timeChart ? timeChart.timeScale().getVisibleLogicalRange() : null); linkStatsCrosshairs(); updateHeatmap(); updateStatusChart();
     }
     function applyStatsHTML(html) {
       if (!statsView) return;
