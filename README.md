@@ -15,7 +15,7 @@ go run ./cmd/agw
 使用 `--allow-debug` 允许 request header 日志生效：未设置时，即使 `config.yaml` 里写了 `debug: true`、或通过页面提交修改，运行时都保持关闭（页面也不会显示 Debug headers 开关）；设置后，配置里的 `debug: true` 才会在运行时生效，并可通过页面 toggle 切换保存。
 日志默认只进 `/logs` 实时流（保留最近 100 条），**不写入 stderr**，避免托管方从终端日志里看到敏感信息；需要同时输出到 stderr 时加 `-log-stderr`（或 `--log-stderr`）。
 
-公开托管时建议设置管理面 Basic Auth：可通过 `--admin-user` / `--admin-password` 或环境变量 `AGW_ADMIN_USER` / `AGW_ADMIN_PASSWORD` 配置（两者必须同时设置，flag 优先于环境变量；密码建议走环境变量，避免出现在进程列表和历史记录里）。设置后，配置页 `/`、`/config`、`/logs`、Session journal（`/sessions*`）和 Stats（`/stats*`）这些管理路径需要 HTTP Basic Auth 才能访问，代理路径（`/v1/...`）保持开放；未设置时管理面不启用认证，保持原来的行为。凭据不会写入配置或出现在配置页中。
+公开托管时建议设置管理面 Basic Auth：可通过 `--admin-user` / `--admin-password` 或环境变量 `AGW_ADMIN_USER` / `AGW_ADMIN_PASSWORD` 配置（两者必须同时设置，flag 优先于环境变量；密码建议走环境变量，避免出现在进程列表和历史记录里）。设置后，配置页 `/`、`/config`、`/logs`、Session journal（`/sessions*`）和 Stats（`/stats`、`/stats/stream`、`/stats/export`）这些管理路径需要 HTTP Basic Auth 才能访问，代理路径（`/v1/...`）保持开放；`/stats/public` 始终公开，会暴露聚合统计。未设置时管理面不启用认证，保持原来的行为。凭据不会写入配置或出现在配置页中。
 
 ### Secrets（浏览器本地保存，服务端只存内存）
 
@@ -234,7 +234,7 @@ upstreams:
 
 请求时间分布面板右上角的**导出快照**会下载一个完全独立的 HTML 文件：内嵌全部时间窗口的数据与图表代码（与预览同构），无需网关即可在浏览器中查看，适合分享与归档。
 
-Stats 与 Session journal 同源，随会话实时更新；`/stats` 和 `/stats/stream` 与其他管理路径一样受 Basic Auth 保护。
+Stats 与 Session journal 同源，随会话实时更新；`/stats`、`/stats/stream` 与 `/stats/export` 和其他管理路径一样受 Basic Auth 保护。`/stats/public` 则直接返回同一份独立 HTML 快照，不带下载响应头，始终绕过管理 Basic Auth，适合公开查看或嵌入；它会公开聚合统计，部署时应确认这些数据可被访问。
 
 ```bash
 curl http://localhost:8080/chat/completions \

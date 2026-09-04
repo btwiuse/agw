@@ -145,6 +145,9 @@ func requiresManagementAuth(r *http.Request) bool {
 	if r.Method == http.MethodOptions {
 		return false
 	}
+	if r.URL.Path == "/stats/public" && r.Method == http.MethodGet {
+		return false
+	}
 	return isManagementRequest(r)
 }
 

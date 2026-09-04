@@ -2091,6 +2091,24 @@ func TestConfigPageDefaultsToDarkSessionJournal(t *testing.T) {
 	}
 }
 
+func TestStatsChartsShareTimeScale(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	serveConfigPage(recorder, httptest.NewRequest(http.MethodGet, "/", nil), nil, false, false)
+	content := recorder.Body.String()
+	for _, expected := range []string{
+		"function linkStatsTimeScales()",
+		"subscribeVisibleLogicalRangeChange(handler)",
+		"setVisibleLogicalRange(range)",
+		"function syncStatsChartLayout()",
+		"function linkStatsCrosshairs()",
+		"setCrosshairPosition(valueFor(bucket), param.time, series)",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("stats chart synchronization missing %q", expected)
+		}
+	}
+}
+
 func TestConfigPageRendersBodyMatchRules(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	serveConfigPage(recorder, httptest.NewRequest(http.MethodGet, "/", nil), []AppSelector{
@@ -2455,6 +2473,46 @@ func TestStatsExportRendersStandaloneHTML(t *testing.T) {
 	// encoder escapes '<' as \u003c, so no inline tag can terminate the block.
 	if !strings.Contains(content, `\u003c/`) {
 		t.Fatalf("windows JSON must escape HTML tag openers")
+	}
+}
+
+func TestStatsPublicRendersStandaloneHTMLWithoutAuth(t *testing.T) {
+	hub := newSessionHub()
+	defer hub.close()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	proxy := &Proxy{Logger: logger, Sessions: hub}
+	now := time.Now()
+	hub.mu.Lock()
+	hub.history = []*statsEntry{
+		{sessionID: "s1", started: now, completed: now.Add(time.Second), status: 200, state: "completed", reqBytes: 10, respBytes: 20, model: "gpt-5", upstream: "openai", method: "POST", path: "/responses"},
+	}
+	hub.mu.Unlock()
+
+	handler := gatewayHandler(logger, proxy, "admin", "secret")
+	public := httptest.NewRecorder()
+	handler.ServeHTTP(public, httptest.NewRequest(http.MethodGet, "/stats/public", nil))
+	if public.Code != http.StatusOK {
+		t.Fatalf("public stats status = %d", public.Code)
+	}
+	if got := public.Header().Get("Content-Disposition"); got != "" {
+		t.Fatalf("public stats Content-Disposition = %q", got)
+	}
+	if got := public.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
+		t.Fatalf("public stats Content-Type = %q", got)
+	}
+	for _, expected := range []string{"<!doctype html>", "STATS_WINDOWS", "请求时间分布", "openai"} {
+		if !strings.Contains(public.Body.String(), expected) {
+			t.Fatalf("public stats missing %q", expected)
+		}
+	}
+	if got := len(hub.history); got != 1 {
+		t.Fatalf("public stats request must not enter history, got %d entries", got)
+	}
+
+	export := httptest.NewRecorder()
+	handler.ServeHTTP(export, httptest.NewRequest(http.MethodGet, "/stats/export", nil))
+	if export.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated stats export status = %d", export.Code)
 	}
 }
 

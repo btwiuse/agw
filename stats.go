@@ -1514,6 +1514,14 @@ func renderStats(view statsView) (string, error) {
 var statsExportWindows = []string{"all", "1h", "24h", "7d", "30d"}
 
 func (p *Proxy) serveStatsExport(w http.ResponseWriter, r *http.Request) {
+	p.serveStatsSnapshot(w, true)
+}
+
+func (p *Proxy) serveStatsPublic(w http.ResponseWriter, r *http.Request) {
+	p.serveStatsSnapshot(w, false)
+}
+
+func (p *Proxy) serveStatsSnapshot(w http.ResponseWriter, download bool) {
 	if p.Sessions == nil {
 		http.Error(w, "session tracking is unavailable", http.StatusServiceUnavailable)
 		return
@@ -1525,7 +1533,9 @@ func (p *Proxy) serveStatsExport(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Disposition", `attachment; filename="agw-stats-`+time.Now().Format("20060102-1504")+`.html"`)
+	if download {
+		w.Header().Set("Content-Disposition", `attachment; filename="agw-stats-`+time.Now().Format("20060102-1504")+`.html"`)
+	}
 	_, _ = io.WriteString(w, html)
 }
 
