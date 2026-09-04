@@ -52,6 +52,7 @@ upstreams:
 所有上游 `4xx/5xx` 响应都会记录到 `/logs` 实时流，包含响应体内容；正常响应保持流式转发。
 代理向上游请求时使用 `Accept-Encoding: identity`，避免压缩错误 body 造成日志乱码。
 服务自动添加 CORS header，当前允许任意 Origin、method 和 header；浏览器的 CORS 预检请求会直接返回 `204`。
+同时下发跨源隔离响应头 `Cross-Origin-Opener-Policy: same-origin`、`Cross-Origin-Resource-Policy: cross-origin`、`Cross-Origin-Embedder-Policy: require-corp`，以便在嵌入式场景下启用 `SharedArrayBuffer` 等跨源隔离 API。
 
 ```yaml
 - url: https://pai.d1v.ai/v1

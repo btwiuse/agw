@@ -164,6 +164,15 @@ func TestCORSPreflight(t *testing.T) {
 	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "*" {
 		t.Fatalf("allow origin = %q", got)
 	}
+	if got := recorder.Header().Get("Cross-Origin-Opener-Policy"); got != "same-origin" {
+		t.Fatalf("COOP = %q", got)
+	}
+	if got := recorder.Header().Get("Cross-Origin-Resource-Policy"); got != "cross-origin" {
+		t.Fatalf("CORP = %q", got)
+	}
+	if got := recorder.Header().Get("Cross-Origin-Embedder-Policy"); got != "require-corp" {
+		t.Fatalf("COEP = %q", got)
+	}
 }
 
 func TestCORSHeadersAreNotDuplicated(t *testing.T) {
